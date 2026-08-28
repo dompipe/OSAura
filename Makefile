@@ -104,7 +104,7 @@ $(SECURITY_OBJ): kernel/security.c kernel/security.h kernel/hot-shadow.h | $(BUI
 $(SECURITY_POLICY_OBJ): kernel/security-policy.c kernel/security-policy.h kernel/security.h kernel/scheduler.h kernel/storage.h kernel/vfs.h kernel/usb-hot.h kernel/wifi-hot.h kernel/e1000.h runtime/jx/jx-runtime.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(HOT_SHADOW_OBJ): kernel/hot-shadow.c kernel/hot-shadow.h kernel/usb-hot.h kernel/wifi-hot.h kernel/clock-hot.h kernel/memory-hot.h kernel/task-hot.h kernel/vfs.h kernel/book-hot.h kernel/security.h | $(BUILD)
+$(HOT_SHADOW_OBJ): kernel/hot-shadow.c kernel/hot-shadow.h kernel/storage.h kernel/ipc.h kernel/usb-hot.h kernel/wifi-hot.h kernel/clock-hot.h kernel/memory-hot.h kernel/task-hot.h kernel/vfs.h kernel/book-hot.h kernel/security.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(STORAGE_OBJ): kernel/storage.c kernel/storage.h kernel/hot-shadow.h kernel/security.h | $(BUILD)
