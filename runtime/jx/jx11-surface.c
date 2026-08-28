@@ -95,6 +95,27 @@ static int slot_above(const jx11_surface_slot *a, uint32_t aid,
     return aid > bid;
 }
 
+static uint32_t prepare_order(uint32_t *order,
+                              int32_t x0, int32_t y0,
+                              int32_t x1, int32_t y1) {
+    uint32_t count = 0u;
+    for (uint32_t i = 0u; i < OSAURA_JX11_SURFACE_MAX; ++i) {
+        jx11_surface_slot *s = &g_surface[i];
+        if (!s->used || !s->visible || !s->opacity) continue;
+        int64_t sx1 = (int64_t)s->x + s->width;
+        int64_t sy1 = (int64_t)s->y + s->height;
+        if (sx1 <= x0 || sy1 <= y0 || s->x >= x1 || s->y >= y1) continue;
+        uint32_t pos = count;
+        while (pos > 0u && slot_above(&g_surface[order[pos - 1u]], order[pos - 1u], s, i)) {
+            order[pos] = order[pos - 1u];
+            --pos;
+        }
+        order[pos] = i;
+        ++count;
+    }
+    return count;
+}
+
 int osaura_jx11_surface_init(osaura_jx11_alloc_fn alloc_fn,
                              osaura_jx11_free_fn free_fn,
                              void *context) {
@@ -295,29 +316,18 @@ int osaura_jx11_surface_compose(void) {
     int32_t y1 = g_damage.bottom > (int32_t)primary->height ? (int32_t)primary->height : g_damage.bottom;
     if (x0 >= x1 || y0 >= y1) { damage_reset(); return 0; }
 
+    uint32_t order[OSAURA_JX11_SURFACE_MAX];
+    uint32_t count = prepare_order(order, x0, y0, x1, y1);
     volatile uint32_t *fb = (volatile uint32_t *)(uintptr_t)primary->framebuffer_base;
     for (int32_t y = y0; y < y1; ++y) {
         volatile uint32_t *row = fb + (uint64_t)(uint32_t)y * primary->stride_pixels;
         for (int32_t x = x0; x < x1; ++x) {
             uint32_t color = g_background_xrgb;
-            uint32_t order[OSAURA_JX11_SURFACE_MAX];
-            uint32_t count = 0u;
-            for (uint32_t i = 0u; i < OSAURA_JX11_SURFACE_MAX; ++i) {
-                jx11_surface_slot *s = &g_surface[i];
-                if (!s->used || !s->visible || !s->opacity) continue;
+            for (uint32_t oi = 0u; oi < count; ++oi) {
+                jx11_surface_slot *s = &g_surface[order[oi]];
                 int64_t sx1 = (int64_t)s->x + s->width;
                 int64_t sy1 = (int64_t)s->y + s->height;
                 if (x < s->x || y < s->y || (int64_t)x >= sx1 || (int64_t)y >= sy1) continue;
-                uint32_t pos = count;
-                while (pos > 0u && slot_above(&g_surface[order[pos - 1u]], order[pos - 1u], s, i)) {
-                    order[pos] = order[pos - 1u];
-                    --pos;
-                }
-                order[pos] = i;
-                ++count;
-            }
-            for (uint32_t oi = 0u; oi < count; ++oi) {
-                jx11_surface_slot *s = &g_surface[order[oi]];
                 uint32_t sx = (uint32_t)(x - s->x);
                 uint32_t sy = (uint32_t)(y - s->y);
                 color = blend_argb_over_xrgb(color, s->pixels[(uint64_t)sy * s->width + sx], s->opacity);
