@@ -44,28 +44,18 @@ typedef struct {
     int (*sleep)(uint32_t pid, void *context);
 } osaura_processor_bus_backend;
 
-/* The buffer is processor-owned. Publishers provide pointed data; publish copies it
- * into the global processor buffer before any program is woken. */
 int osaura_processor_bus_init(const osaura_processor_bus_backend *backend, void *context);
 void osaura_processor_bus_reset(void);
 int osaura_processor_bus_publish(uint32_t source_pid, const void *pointed_data, uint32_t bytes);
 int osaura_processor_bus_view_for(uint32_t pid, osaura_processor_bus_view *view);
-
-/* Only the currently bookmarked PID may acknowledge. changed=0 means the program
- * inspected the generation and found nothing to return. changed=1 copies its
- * pointed response into processor-owned response storage. The bus then sleeps
- * that PID and wakes the next PID in the precomputed route. */
 int osaura_processor_bus_ack(uint32_t pid,
                              int changed,
                              const void *pointed_response,
                              uint32_t response_bytes);
-
-/* After the check sweep, the processor may consume the response aggregate and
- * optionally send one resolved return payload through the same bookmarked route. */
 int osaura_processor_bus_response(const uint8_t **data, uint32_t *bytes, uint16_t *changed_bits);
 int osaura_processor_bus_publish_return(const void *pointed_data, uint32_t bytes);
 
-const osaura_processor_bus_info *osaura_processor_bus_info(void);
+const osaura_processor_bus_info *osaura_processor_bus_get_info(void);
 uint32_t osaura_processor_bus_route_pid(uint32_t order_index);
 
 #endif
