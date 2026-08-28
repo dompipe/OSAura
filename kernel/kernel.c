@@ -196,7 +196,7 @@ static void run_command(const char *line) {
     }
 }
 
-static void terminal_loop(void) {
+__attribute__((noreturn)) static void terminal_loop(void) {
     char line[LINE_MAX];
     uint32_t length = 0;
     print_prompt();
