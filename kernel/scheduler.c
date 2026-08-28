@@ -6,9 +6,12 @@
 #define TASK_STACK_BYTES 16384u
 #define TASK_STACK_QWORDS (TASK_STACK_BYTES / sizeof(uint64_t))
 #define KERNEL_CS 0x08ull
+#define KERNEL_SS 0x10ull
 #define INITIAL_RFLAGS 0x202ull
-#define SAVED_FRAME_QWORDS 18u
-#define FRAME_WITH_RETURN_QWORDS 19u
+#define SAVED_GPRS_QWORDS 15u
+#define IRET64_QWORDS 5u
+#define SAVED_FRAME_QWORDS (SAVED_GPRS_QWORDS + IRET64_QWORDS)
+#define FRAME_WITH_RETURN_QWORDS (SAVED_FRAME_QWORDS + 1u)
 
 typedef struct {
     uint64_t *saved_rsp;
@@ -34,13 +37,23 @@ __attribute__((noreturn, noinline)) static void worker_idle(void) {
 }
 
 /*
- * Build the exact stack image consumed by the IRQ0 restore path:
+ * IRQ0's assembly restore path consumes this exact long-mode stack image:
  *
- *   r15..rax (15 qwords), RIP, CS, RFLAGS
+ *   r15..rax (15 qwords)
+ *   RIP
+ *   CS
+ *   RFLAGS
+ *   RSP
+ *   SS
  *
- * iretq removes the final three qwords. One additional qword remains above
- * that frame as a conventional C return address so the new task enters with
- * the System V x86-64 stack alignment a normal function expects.
+ * Intel 64 IRETQ pops SS:RSP unconditionally in 64-bit mode. Real hardware
+ * interrupts already provide the five-word IRET frame; synthetic first-run
+ * task frames must do the same or IRETQ will interpret whatever follows
+ * RFLAGS as the new task stack pointer and stack selector.
+ *
+ * The return slot lives at the naturally aligned top of the task stack. The
+ * synthetic IRET frame loads RSP with its address, which gives a C entry point
+ * the normal System V x86-64 entry alignment and a deterministic return trap.
  */
 static uint64_t *build_initial_frame(uint64_t *stack,
                                      size_t qwords,
@@ -48,13 +61,17 @@ static uint64_t *build_initial_frame(uint64_t *stack,
     if (!stack || qwords <= FRAME_WITH_RETURN_QWORDS || !entry) return 0;
 
     uint64_t *top = stack + qwords;
-    uint64_t *frame = top - FRAME_WITH_RETURN_QWORDS;
-    for (size_t i = 0; i < FRAME_WITH_RETURN_QWORDS; ++i) frame[i] = 0;
+    uint64_t *return_slot = top - 1u;
+    uint64_t *frame = return_slot - SAVED_FRAME_QWORDS;
+
+    for (size_t i = 0; i < SAVED_FRAME_QWORDS; ++i) frame[i] = 0;
 
     frame[15] = (uint64_t)(uintptr_t)entry;
     frame[16] = KERNEL_CS;
     frame[17] = INITIAL_RFLAGS;
-    frame[18] = (uint64_t)(uintptr_t)&task_returned;
+    frame[18] = (uint64_t)(uintptr_t)return_slot;
+    frame[19] = KERNEL_SS;
+    *return_slot = (uint64_t)(uintptr_t)&task_returned;
     return frame;
 }
 
