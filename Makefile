@@ -5,6 +5,7 @@ KERNEL_OBJ := $(BUILD)/kernel.o
 MM_OBJ := $(BUILD)/mm.o
 SCHED_OBJ := $(BUILD)/scheduler.o
 USB_OBJ := $(BUILD)/usb.o
+USB_HOT_OBJ := $(BUILD)/usb-hot.o
 E1000_OBJ := $(BUILD)/e1000.o
 NET_OBJ := $(BUILD)/net.o
 WIFI_OBJ := $(BUILD)/wifi.o
@@ -62,6 +63,9 @@ $(SCHED_OBJ): kernel/scheduler.c kernel/scheduler.h runtime/jx/jx-runtime.h | $(
 $(USB_OBJ): kernel/usb.c kernel/usb.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -Wno-unused-function -c $< -o $@
 
+$(USB_HOT_OBJ): kernel/usb-hot.c kernel/usb-hot.h kernel/usb.h kernel/hot-shadow.h | $(BUILD)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
 $(E1000_OBJ): kernel/e1000.c kernel/e1000.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
@@ -71,7 +75,7 @@ $(NET_OBJ): kernel/net.c kernel/net.h kernel/e1000.h | $(BUILD)
 $(WIFI_OBJ): kernel/wifi.c kernel/wifi.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(HOT_SHADOW_OBJ): kernel/hot-shadow.c kernel/hot-shadow.h | $(BUILD)
+$(HOT_SHADOW_OBJ): kernel/hot-shadow.c kernel/hot-shadow.h kernel/usb-hot.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(STORAGE_OBJ): kernel/storage.c kernel/storage.h kernel/hot-shadow.h | $(BUILD)
@@ -96,8 +100,8 @@ $(JX_LIVE_OBJ): runtime/jx/jx-live.c runtime/jx/jx-runtime.h | $(BUILD)
 $(ARCH_OBJ): kernel/x86_64.S | $(BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
 
-$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
-	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
+$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(USB_HOT_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
+	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(USB_HOT_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
 
 $(EFI): $(SO)
 	$(OBJCOPY) \
