@@ -1,0 +1,32 @@
+name: JX11 display CI
+
+on:
+  push:
+    paths:
+      - 'kernel/display.c'
+      - 'kernel/display.h'
+      - 'runtime/jx/jx11-display.c'
+      - 'runtime/jx/jx11-display.h'
+      - 'tests/display-driver-test.c'
+      - '.github/workflows/jx11-display-ci.yml'
+  pull_request:
+    paths:
+      - 'kernel/display.c'
+      - 'kernel/display.h'
+      - 'runtime/jx/jx11-display.c'
+      - 'runtime/jx/jx11-display.h'
+      - 'tests/display-driver-test.c'
+      - '.github/workflows/jx11-display-ci.yml'
+
+jobs:
+  display:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build display driver test
+        run: >-
+          gcc -std=c11 -Wall -Wextra -Werror -O2
+          kernel/display.c runtime/jx/jx11-display.c tests/display-driver-test.c
+          -Ikernel -Iruntime/jx -o jx11-display-test
+      - name: Run display driver test
+        run: ./jx11-display-test
