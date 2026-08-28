@@ -13,7 +13,6 @@ typedef struct {
 } osaura_ipc_channel;
 
 static osaura_ipc_channel g_channels[OSAURA_IPC_CHANNEL_MAX];
-static osaura_shadow_table g_ipc_shadows;
 
 static void zero_bytes(void *ptr, size_t bytes) {
     uint8_t *p = (uint8_t *)ptr;
@@ -129,33 +128,33 @@ static int shadow_poll(void *context, void *opaque) {
 
 void osaura_ipc_init(void) {
     zero_bytes(g_channels, sizeof g_channels);
-    osaura_shadow_table_init(&g_ipc_shadows);
-    (void)osaura_shadow_bind(&g_ipc_shadows, OSAURA_HOT_BANK_IPC, OSAURA_IPC_SEND, shadow_send, 0);
-    (void)osaura_shadow_bind(&g_ipc_shadows, OSAURA_HOT_BANK_IPC, OSAURA_IPC_RECEIVE, shadow_receive, 0);
-    (void)osaura_shadow_bind(&g_ipc_shadows, OSAURA_HOT_BANK_IPC, OSAURA_IPC_PENDING, shadow_pending, 0);
-    (void)osaura_shadow_bind(&g_ipc_shadows, OSAURA_HOT_BANK_IPC, OSAURA_IPC_OWNER, shadow_owner, 0);
-    (void)osaura_shadow_bind(&g_ipc_shadows, OSAURA_HOT_BANK_IPC, OSAURA_IPC_CREATE, shadow_create, 0);
-    (void)osaura_shadow_bind(&g_ipc_shadows, OSAURA_HOT_BANK_IPC, OSAURA_IPC_CLOSE, shadow_close, 0);
-    (void)osaura_shadow_bind(&g_ipc_shadows, OSAURA_HOT_BANK_IPC, OSAURA_IPC_SENDRECV, shadow_sendrecv, 0);
-    (void)osaura_shadow_bind(&g_ipc_shadows, OSAURA_HOT_BANK_IPC, OSAURA_IPC_POLL, shadow_poll, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_IPC, OSAURA_IPC_SEND, shadow_send, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_IPC, OSAURA_IPC_RECEIVE, shadow_receive, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_IPC, OSAURA_IPC_PENDING, shadow_pending, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_IPC, OSAURA_IPC_OWNER, shadow_owner, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_IPC, OSAURA_IPC_CREATE, shadow_create, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_IPC, OSAURA_IPC_CLOSE, shadow_close, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_IPC, OSAURA_IPC_SENDRECV, shadow_sendrecv, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_IPC, OSAURA_IPC_POLL, shadow_poll, 0);
 }
 
 int osaura_ipc_dispatch(uint8_t selector, osaura_ipc_request *request) {
-    return osaura_shadow_dispatch(&g_ipc_shadows, OSAURA_HOT_BANK_IPC, selector, request);
+    return osaura_hot_dispatch(OSAURA_HOT_BANK_IPC, selector, request);
 }
 
 int osaura_ipc_dispatch_opcode(uint8_t opcode, osaura_ipc_request *request) {
-    return osaura_shadow_dispatch_opcode(&g_ipc_shadows, opcode, request);
+    if (osaura_hot_bank(opcode) != OSAURA_HOT_BANK_IPC) return -1;
+    return osaura_hot_dispatch_opcode(opcode, request);
 }
 
 const osaura_shadow_table *osaura_ipc_shadows(void) {
-    return &g_ipc_shadows;
+    return osaura_hot_table();
 }
 
 int osaura_ipc_channel_create(uint32_t owner_task, uint32_t *channel_id) {
     osaura_ipc_request request = {0};
     request.actor_task = owner_task;
-    int rc = osaura_ipc_dispatch_opcode(
+    int rc = osaura_hot_dispatch_opcode(
         osaura_hot_opcode(OSAURA_HOT_BANK_IPC, OSAURA_IPC_CREATE), &request);
     if (rc == 0 && channel_id) *channel_id = request.channel_id;
     return rc;
@@ -165,7 +164,7 @@ int osaura_ipc_channel_close(uint32_t owner_task, uint32_t channel_id) {
     osaura_ipc_request request = {0};
     request.actor_task = owner_task;
     request.channel_id = channel_id;
-    return osaura_ipc_dispatch_opcode(
+    return osaura_hot_dispatch_opcode(
         osaura_hot_opcode(OSAURA_HOT_BANK_IPC, OSAURA_IPC_CLOSE), &request);
 }
 
@@ -177,7 +176,7 @@ int osaura_ipc_send(uint32_t sender_task, uint32_t channel_id, uint32_t type,
     request.type = type;
     request.payload = payload;
     request.bytes = bytes;
-    return osaura_ipc_dispatch_opcode(
+    return osaura_hot_dispatch_opcode(
         osaura_hot_opcode(OSAURA_HOT_BANK_IPC, OSAURA_IPC_SEND), &request);
 }
 
@@ -187,14 +186,14 @@ int osaura_ipc_receive(uint32_t receiver_task, uint32_t channel_id,
     request.actor_task = receiver_task;
     request.channel_id = channel_id;
     request.message = message;
-    return osaura_ipc_dispatch_opcode(
+    return osaura_hot_dispatch_opcode(
         osaura_hot_opcode(OSAURA_HOT_BANK_IPC, OSAURA_IPC_RECEIVE), &request);
 }
 
 uint32_t osaura_ipc_pending(uint32_t channel_id) {
     osaura_ipc_request request = {0};
     request.channel_id = channel_id;
-    return osaura_ipc_dispatch_opcode(
+    return osaura_hot_dispatch_opcode(
         osaura_hot_opcode(OSAURA_HOT_BANK_IPC, OSAURA_IPC_PENDING), &request) == 0
         ? request.value : 0u;
 }
@@ -202,7 +201,7 @@ uint32_t osaura_ipc_pending(uint32_t channel_id) {
 uint32_t osaura_ipc_channel_owner(uint32_t channel_id) {
     osaura_ipc_request request = {0};
     request.channel_id = channel_id;
-    return osaura_ipc_dispatch_opcode(
+    return osaura_hot_dispatch_opcode(
         osaura_hot_opcode(OSAURA_HOT_BANK_IPC, OSAURA_IPC_OWNER), &request) == 0
         ? request.value : OSAURA_IPC_NONE;
 }
