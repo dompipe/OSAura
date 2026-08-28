@@ -5,29 +5,43 @@ on:
     paths:
       - 'kernel/display.c'
       - 'kernel/display.h'
+      - 'kernel/processor-bus.c'
+      - 'kernel/processor-bus.h'
+      - 'runtime/jx/jx-bag-bus.c'
+      - 'runtime/jx/jx-bag-bus.h'
       - 'runtime/jx/jx11-display.c'
       - 'runtime/jx/jx11-display.h'
       - 'runtime/jx/jx11-surface.c'
       - 'runtime/jx/jx11-surface.h'
       - 'runtime/jx/jx11-window.c'
       - 'runtime/jx/jx11-window.h'
+      - 'runtime/jx/jx11-window-bag.c'
+      - 'runtime/jx/jx11-window-bag.h'
       - 'tests/display-driver-test.c'
       - 'tests/jx11-surface-test.c'
       - 'tests/jx11-window-test.c'
+      - 'tests/jx11-window-bag-test.c'
       - '.github/workflows/jx11-display-ci.yml'
   pull_request:
     paths:
       - 'kernel/display.c'
       - 'kernel/display.h'
+      - 'kernel/processor-bus.c'
+      - 'kernel/processor-bus.h'
+      - 'runtime/jx/jx-bag-bus.c'
+      - 'runtime/jx/jx-bag-bus.h'
       - 'runtime/jx/jx11-display.c'
       - 'runtime/jx/jx11-display.h'
       - 'runtime/jx/jx11-surface.c'
       - 'runtime/jx/jx11-surface.h'
       - 'runtime/jx/jx11-window.c'
       - 'runtime/jx/jx11-window.h'
+      - 'runtime/jx/jx11-window-bag.c'
+      - 'runtime/jx/jx11-window-bag.h'
       - 'tests/display-driver-test.c'
       - 'tests/jx11-surface-test.c'
       - 'tests/jx11-window-test.c'
+      - 'tests/jx11-window-bag-test.c'
       - '.github/workflows/jx11-display-ci.yml'
 
 jobs:
@@ -56,3 +70,12 @@ jobs:
           -Ikernel -Iruntime/jx -o jx11-window-test
       - name: Run JX11 window manager test
         run: ./jx11-window-test
+      - name: Build JX11 borrowed Bag window-view test
+        run: >-
+          gcc -std=c11 -Wall -Wextra -Werror -O2
+          kernel/display.c kernel/processor-bus.c
+          runtime/jx/jx-bag-bus.c runtime/jx/jx11-surface.c runtime/jx/jx11-window.c runtime/jx/jx11-window-bag.c
+          tests/jx11-window-bag-test.c
+          -Ikernel -Iruntime/jx -o jx11-window-bag-test
+      - name: Run JX11 borrowed Bag window-view test
+        run: ./jx11-window-bag-test
