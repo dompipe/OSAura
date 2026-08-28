@@ -20,7 +20,10 @@ COMMON_FLAGS := -fpic -ffreestanding -fno-stack-protector -fno-stack-check \
 	-mno-red-zone -Wall -Wextra -Werror -O2
 LOADER_CFLAGS := $(COMMON_FLAGS) -fshort-wchar -maccumulate-outgoing-args \
 	-I$(EFI_INC) -I$(EFI_ARCH_INC) -I$(EFI_INC)/protocol
-KERNEL_CFLAGS := $(COMMON_FLAGS) -Ikernel
+# The current preemptive scheduler saves the complete integer context. Keep
+# freestanding kernel C inside that ABI: no host CET entry markers and no
+# implicit MMX/SSE/AVX state until OSAura has an explicit extended-state save.
+KERNEL_CFLAGS := $(COMMON_FLAGS) -fcf-protection=none -mgeneral-regs-only -Ikernel
 
 LDFLAGS := -nostdlib -znocombreloc -T $(EFI_LDS) -shared -Bsymbolic \
 	-L/usr/lib -L/usr/lib64
