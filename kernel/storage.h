@@ -13,7 +13,7 @@
 #define OSAURA_BLOCK_CAP_FLUSH      0x04u
 #define OSAURA_BLOCK_CAP_REMOVABLE  0x08u
 
-/* 3-bit storage hot ABI: exactly eight shadows. */
+/* Storage bank shadows: low three bits of the one-byte hot opcode. */
 typedef enum {
     OSAURA_STORAGE_READ1   = 0u,
     OSAURA_STORAGE_WRITE1  = 1u,
@@ -66,6 +66,7 @@ typedef struct {
 
 void osaura_storage_init(void);
 int osaura_storage_dispatch(uint8_t selector, osaura_storage_request *request);
+int osaura_storage_dispatch_opcode(uint8_t opcode, osaura_storage_request *request);
 const osaura_shadow_table *osaura_storage_shadows(void);
 int osaura_block_register(const osaura_block_driver *driver, uint32_t *device_id);
 uint32_t osaura_block_device_count(void);
