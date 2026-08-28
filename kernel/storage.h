@@ -13,7 +13,6 @@
 #define OSAURA_BLOCK_CAP_FLUSH      0x04u
 #define OSAURA_BLOCK_CAP_REMOVABLE  0x08u
 
-/* Storage bank shadows: low three bits of the one-byte hot opcode. */
 typedef enum {
     OSAURA_STORAGE_READ1   = 0u,
     OSAURA_STORAGE_WRITE1  = 1u,
@@ -35,14 +34,8 @@ typedef struct {
     const void *const_buffer;
 } osaura_storage_request;
 
-typedef int (*osaura_block_read_fn)(void *context,
-                                    uint64_t lba,
-                                    uint32_t blocks,
-                                    void *buffer);
-typedef int (*osaura_block_write_fn)(void *context,
-                                     uint64_t lba,
-                                     uint32_t blocks,
-                                     const void *buffer);
+typedef int (*osaura_block_read_fn)(void *context, uint64_t lba, uint32_t blocks, void *buffer);
+typedef int (*osaura_block_write_fn)(void *context, uint64_t lba, uint32_t blocks, const void *buffer);
 typedef int (*osaura_block_flush_fn)(void *context);
 
 typedef struct {
@@ -73,6 +66,8 @@ uint32_t osaura_block_device_count(void);
 int osaura_block_get_info(uint32_t device_id, osaura_block_info *info);
 int osaura_block_read(uint32_t device_id, uint64_t lba, uint32_t blocks, void *buffer);
 int osaura_block_write(uint32_t device_id, uint64_t lba, uint32_t blocks, const void *buffer);
+int osaura_block_read_at(uint32_t device_id, uint64_t offset, uint32_t bytes, void *buffer);
+int osaura_block_write_at(uint32_t device_id, uint64_t offset, uint32_t bytes, const void *buffer);
 int osaura_block_flush(uint32_t device_id);
 
 #endif
