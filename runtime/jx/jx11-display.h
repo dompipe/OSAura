@@ -27,7 +27,7 @@ typedef struct {
     uint32_t stride_pixels;
 } osaura_jx11_blit_request;
 
-int osaura_jx11_display_info(osaura_jx11_display_info *out);
+int osaura_jx11_display_get_info(osaura_jx11_display_info *out);
 int osaura_jx11_display_clear(uint32_t color_xrgb);
 int osaura_jx11_display_fill(const osaura_jx11_fill_request *request);
 int osaura_jx11_display_blit(const osaura_jx11_blit_request *request);
