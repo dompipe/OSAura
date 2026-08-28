@@ -8,6 +8,7 @@ USB_OBJ := $(BUILD)/usb.o
 E1000_OBJ := $(BUILD)/e1000.o
 NET_OBJ := $(BUILD)/net.o
 WIFI_OBJ := $(BUILD)/wifi.o
+HOT_SHADOW_OBJ := $(BUILD)/hot-shadow.o
 STORAGE_OBJ := $(BUILD)/storage.o
 IPC_OBJ := $(BUILD)/ipc.o
 JX_RUNTIME_OBJ := $(BUILD)/jx-runtime.o
@@ -70,6 +71,9 @@ $(NET_OBJ): kernel/net.c kernel/net.h kernel/e1000.h | $(BUILD)
 $(WIFI_OBJ): kernel/wifi.c kernel/wifi.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
+$(HOT_SHADOW_OBJ): kernel/hot-shadow.c kernel/hot-shadow.h | $(BUILD)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
 $(STORAGE_OBJ): kernel/storage.c kernel/storage.h kernel/hot-shadow.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
@@ -92,8 +96,8 @@ $(JX_LIVE_OBJ): runtime/jx/jx-live.c runtime/jx/jx-runtime.h | $(BUILD)
 $(ARCH_OBJ): kernel/x86_64.S | $(BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
 
-$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
-	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
+$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
+	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
 
 $(EFI): $(SO)
 	$(OBJCOPY) \
