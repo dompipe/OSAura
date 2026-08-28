@@ -8,6 +8,11 @@ static int wifi_allowed(uint32_t subject) {
     return subject == 0u || osaura_security_check(subject, OSAURA_CAP_WIFI);
 }
 
+static int wifi_credentials_allowed(uint32_t subject) {
+    return subject == 0u ||
+           osaura_security_check(subject, OSAURA_CAP_WIFI_CREDENTIAL);
+}
+
 static int hot_wifi_init(void *context, void *request) {
     (void)context;
     const osaura_wifi_hot_control_request *q =
@@ -58,7 +63,8 @@ static int hot_wifi_credential_find(void *context, void *request) {
     (void)context;
     const osaura_wifi_hot_credential_find_request *q =
         (const osaura_wifi_hot_credential_find_request *)request;
-    if (!q || !wifi_allowed(q->subject) || !q->ssid || !q->credential) return -2;
+    if (!q || !wifi_credentials_allowed(q->subject) || !q->ssid || !q->credential)
+        return -2;
     return osaura_wifi_credentials_find(q->ssid, q->credential);
 }
 
@@ -66,7 +72,8 @@ static int hot_wifi_credential_save(void *context, void *request) {
     (void)context;
     const osaura_wifi_hot_credential_save_request *q =
         (const osaura_wifi_hot_credential_save_request *)request;
-    if (!q || !wifi_allowed(q->subject) || !q->credential) return -2;
+    if (!q || !wifi_credentials_allowed(q->subject) || !q->credential)
+        return -2;
     return osaura_wifi_credentials_save(q->credential);
 }
 
