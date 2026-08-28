@@ -33,6 +33,7 @@ typedef enum {
 } osaura_task_role;
 
 typedef struct {
+    uint32_t subject;
     uint32_t task_id;
     uint32_t value;
     uint32_t stack_index;
@@ -53,19 +54,22 @@ osaura_task_state osaura_scheduler_task_state(uint32_t task_id);
 osaura_task_role osaura_scheduler_task_role(uint32_t task_id);
 int osaura_scheduler_running(void);
 
-/*
- * Kernel job-control boundary.
- *
- * All repeatable job operations enter bank 3 as [1][0011][shadow].  Textual
- * shell commands remain cold; after validation they arrive here as a compact
- * request and execute through one of eight prelinked shadows.
- */
-int osaura_scheduler_attach_program(uint32_t task_id, uint8_t terminal_id);
-int osaura_scheduler_background(uint8_t terminal_id, uint32_t *task_id);
-int osaura_scheduler_foreground(uint8_t terminal_id, uint32_t *task_id);
+/* Subject-aware job-control APIs. Non-kernel callers require TASK_CONTROL. */
+int osaura_scheduler_attach_program_as(uint32_t subject, uint32_t task_id, uint8_t terminal_id);
+int osaura_scheduler_background_as(uint32_t subject, uint8_t terminal_id, uint32_t *task_id);
+int osaura_scheduler_foreground_as(uint32_t subject, uint8_t terminal_id, uint32_t *task_id);
+int osaura_scheduler_set_task_state_as(uint32_t subject, uint32_t task_id, osaura_task_state state);
+int osaura_scheduler_wake_as(uint32_t subject, uint32_t task_id);
+
+/* Read-only job queries remain safe for all callers. */
 uint32_t osaura_scheduler_foreground_task(uint8_t terminal_id);
 uint32_t osaura_scheduler_background_count(void);
 uint32_t osaura_scheduler_background_task(uint32_t stack_index);
+
+/* Kernel-subject compatibility wrappers. */
+int osaura_scheduler_attach_program(uint32_t task_id, uint8_t terminal_id);
+int osaura_scheduler_background(uint8_t terminal_id, uint32_t *task_id);
+int osaura_scheduler_foreground(uint8_t terminal_id, uint32_t *task_id);
 int osaura_scheduler_set_task_state(uint32_t task_id, osaura_task_state state);
 int osaura_scheduler_wake(uint32_t task_id);
 
