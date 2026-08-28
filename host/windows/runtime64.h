@@ -41,6 +41,7 @@ void *osaura_windows_memory64_map_as(uint32_t subject, uint32_t id);
 int osaura_windows_task64_init(void);
 uint32_t osaura_windows_task64_count(void);
 int osaura_windows_task64_get_info(uint32_t task_id, osaura_windows_task64_info *info);
+#define osaura_windows_task64_info(...) osaura_windows_task64_get_info(__VA_ARGS__)
 int osaura_windows_task64_set_state_as(uint32_t subject, uint32_t task_id,
                                        osaura_task_state state);
 int osaura_windows_job64_background_as(uint32_t subject, uint32_t task_id);
