@@ -1,0 +1,30 @@
+name: Processor Multiplex Bus CI
+
+on:
+  push:
+    branches: [jx-live-book-generations]
+    paths:
+      - 'kernel/processor-bus.c'
+      - 'kernel/processor-bus.h'
+      - 'tests/processor-bus-test.c'
+      - '.github/workflows/processor-bus-ci.yml'
+  pull_request:
+    paths:
+      - 'kernel/processor-bus.c'
+      - 'kernel/processor-bus.h'
+      - 'tests/processor-bus-test.c'
+      - '.github/workflows/processor-bus-ci.yml'
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build strict processor bus test
+        run: >-
+          cc -std=c11 -O2 -Wall -Wextra -Werror
+          kernel/processor-bus.c tests/processor-bus-test.c
+          -Ikernel -o /tmp/processor-bus-test
+      - name: Verify foreground bookmark PID order and pointed generations
+        run: /tmp/processor-bus-test
