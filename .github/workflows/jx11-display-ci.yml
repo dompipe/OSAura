@@ -7,7 +7,10 @@ on:
       - 'kernel/display.h'
       - 'runtime/jx/jx11-display.c'
       - 'runtime/jx/jx11-display.h'
+      - 'runtime/jx/jx11-surface.c'
+      - 'runtime/jx/jx11-surface.h'
       - 'tests/display-driver-test.c'
+      - 'tests/jx11-surface-test.c'
       - '.github/workflows/jx11-display-ci.yml'
   pull_request:
     paths:
@@ -15,7 +18,10 @@ on:
       - 'kernel/display.h'
       - 'runtime/jx/jx11-display.c'
       - 'runtime/jx/jx11-display.h'
+      - 'runtime/jx/jx11-surface.c'
+      - 'runtime/jx/jx11-surface.h'
       - 'tests/display-driver-test.c'
+      - 'tests/jx11-surface-test.c'
       - '.github/workflows/jx11-display-ci.yml'
 
 jobs:
@@ -30,3 +36,10 @@ jobs:
           -Ikernel -Iruntime/jx -o jx11-display-test
       - name: Run display driver test
         run: ./jx11-display-test
+      - name: Build JX11 surface compositor test
+        run: >-
+          gcc -std=c11 -Wall -Wextra -Werror -O2
+          kernel/display.c runtime/jx/jx11-surface.c tests/jx11-surface-test.c
+          -Ikernel -Iruntime/jx -o jx11-surface-test
+      - name: Run JX11 surface compositor test
+        run: ./jx11-surface-test
