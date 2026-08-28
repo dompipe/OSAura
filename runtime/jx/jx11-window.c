@@ -8,6 +8,7 @@ typedef struct {
     uint32_t owner;
     uint32_t parent;
     uint32_t surface;
+    uint32_t listener_pid;
     int32_t x;
     int32_t y;
     uint32_t width;
@@ -213,6 +214,7 @@ int osaura_jx11_window_create(uint32_t owner_subject,
     w->owner = owner_subject;
     w->parent = parent_id;
     w->surface = surface;
+    w->listener_pid = OSAURA_JX11_LISTENER_NONE;
     w->x = x;
     w->y = y;
     w->width = width;
@@ -249,6 +251,7 @@ int osaura_jx11_window_get_info(uint32_t window_id, osaura_jx11_window_info *out
     out->owner_subject = w->owner;
     out->parent_id = w->parent;
     out->surface_id = w->surface;
+    out->listener_pid = w->listener_pid;
     out->x = w->x;
     out->y = w->y;
     out->width = w->width;
@@ -333,6 +336,47 @@ int osaura_jx11_window_focus_as(uint32_t owner_subject, uint32_t window_id) {
     if (root != window_id) w->z = ++g_z_top;
     rebuild_stacking();
     return 0;
+}
+
+int osaura_jx11_window_bind_listener_as(uint32_t owner_subject,
+                                        uint32_t window_id,
+                                        uint32_t listener_pid) {
+    jx11_window_slot *w = 0;
+    int rc = valid_owned(owner_subject, window_id, &w);
+    if (rc != 0) return rc;
+    w->listener_pid = listener_pid;
+    return 0;
+}
+
+uint32_t osaura_jx11_window_primary_listener(void) {
+    if (!g_ready) return OSAURA_JX11_LISTENER_NONE;
+
+    if (g_focus != OSAURA_JX11_WINDOW_NONE &&
+        g_focus < OSAURA_JX11_WINDOW_MAX && g_window[g_focus].used &&
+        ancestor_visible(g_focus)) {
+        uint32_t id = g_focus;
+        uint32_t guard = 0u;
+        while (id != OSAURA_JX11_WINDOW_NONE && id < OSAURA_JX11_WINDOW_MAX &&
+               g_window[id].used && guard++ < OSAURA_JX11_WINDOW_MAX) {
+            if (g_window[id].listener_pid != OSAURA_JX11_LISTENER_NONE)
+                return g_window[id].listener_pid;
+            id = g_window[id].parent;
+        }
+    }
+
+    uint32_t best_listener = OSAURA_JX11_LISTENER_NONE;
+    int32_t best_z = INT32_MIN;
+    for (uint32_t i = 0u; i < OSAURA_JX11_WINDOW_MAX; ++i) {
+        if (!g_window[i].used || !ancestor_visible(i) ||
+            g_window[i].listener_pid == OSAURA_JX11_LISTENER_NONE)
+            continue;
+        if (best_listener == OSAURA_JX11_LISTENER_NONE ||
+            g_window[i].effective_z > best_z) {
+            best_listener = g_window[i].listener_pid;
+            best_z = g_window[i].effective_z;
+        }
+    }
+    return best_listener;
 }
 
 uint32_t osaura_jx11_window_focused(void) { return g_focus; }
