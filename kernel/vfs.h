@@ -23,6 +23,7 @@ enum {
 };
 
 typedef struct {
+    uint32_t subject;
     uint32_t handle;
     uint32_t device_id;
     uint32_t flags;
@@ -38,6 +39,16 @@ typedef struct {
 
 void osaura_vfs_init(void);
 int osaura_vfs_hot_bind(void);
+int osaura_vfs_open_device_as(uint32_t subject, uint32_t device_id, uint32_t flags, uint32_t *handle);
+int osaura_vfs_read_as(uint32_t subject, uint32_t handle, void *buffer, uint32_t bytes, uint32_t *transferred);
+int osaura_vfs_write_as(uint32_t subject, uint32_t handle, const void *buffer, uint32_t bytes, uint32_t *transferred);
+int osaura_vfs_seek_as(uint32_t subject, uint32_t handle, uint64_t offset);
+int osaura_vfs_stat_as(uint32_t subject, uint32_t handle, osaura_vfs_request *request);
+int osaura_vfs_close_as(uint32_t subject, uint32_t handle);
+int osaura_vfs_flush_as(uint32_t subject, uint32_t handle);
+int osaura_vfs_list_as(uint32_t subject, uint32_t index, osaura_block_info *info);
+
+/* Kernel-subject compatibility wrappers. */
 int osaura_vfs_open_device(uint32_t device_id, uint32_t flags, uint32_t *handle);
 int osaura_vfs_read(uint32_t handle, void *buffer, uint32_t bytes, uint32_t *transferred);
 int osaura_vfs_write(uint32_t handle, const void *buffer, uint32_t bytes, uint32_t *transferred);
