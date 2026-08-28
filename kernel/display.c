@@ -4,7 +4,9 @@
 #include <stdint.h>
 
 static osaura_display_surface g_primary;
+static osaura_display_rect g_dirty;
 static uint8_t g_ready;
+static uint8_t g_dirty_valid;
 
 static uint32_t convert_xrgb(uint32_t xrgb) {
     uint8_t r = (uint8_t)((xrgb >> 16) & 0xffu);
@@ -13,8 +15,33 @@ static uint32_t convert_xrgb(uint32_t xrgb) {
     return osaura_display_pack_rgb(r, g, b);
 }
 
+static void mark_dirty(uint32_t x, uint32_t y, uint32_t width, uint32_t height) {
+    if (!g_ready || !width || !height || x >= g_primary.width || y >= g_primary.height) return;
+    uint32_t x2 = width > g_primary.width - x ? g_primary.width : x + width;
+    uint32_t y2 = height > g_primary.height - y ? g_primary.height : y + height;
+    if (!g_dirty_valid) {
+        g_dirty.x = x;
+        g_dirty.y = y;
+        g_dirty.width = x2 - x;
+        g_dirty.height = y2 - y;
+        g_dirty_valid = 1u;
+        return;
+    }
+    uint32_t old_x2 = g_dirty.x + g_dirty.width;
+    uint32_t old_y2 = g_dirty.y + g_dirty.height;
+    uint32_t nx = x < g_dirty.x ? x : g_dirty.x;
+    uint32_t ny = y < g_dirty.y ? y : g_dirty.y;
+    uint32_t nx2 = x2 > old_x2 ? x2 : old_x2;
+    uint32_t ny2 = y2 > old_y2 ? y2 : old_y2;
+    g_dirty.x = nx;
+    g_dirty.y = ny;
+    g_dirty.width = nx2 - nx;
+    g_dirty.height = ny2 - ny;
+}
+
 int osaura_display_init_surface(const osaura_display_surface *surface) {
     g_ready = 0u;
+    g_dirty_valid = 0u;
     if (!surface || !surface->framebuffer_base || !surface->framebuffer_size ||
         !surface->width || !surface->height || !surface->stride_pixels)
         return -1;
@@ -29,6 +56,7 @@ int osaura_display_init_surface(const osaura_display_surface *surface) {
 
     g_primary = *surface;
     g_ready = 1u;
+    osaura_display_dirty_all();
     return 0;
 }
 
@@ -65,6 +93,7 @@ int osaura_display_put_pixel(uint32_t x, uint32_t y, uint32_t packed_pixel) {
     if (x >= g_primary.width || y >= g_primary.height) return -2;
     volatile uint32_t *fb = (volatile uint32_t *)(uintptr_t)g_primary.framebuffer_base;
     fb[(uint64_t)y * g_primary.stride_pixels + x] = packed_pixel;
+    mark_dirty(x, y, 1u, 1u);
     return 0;
 }
 
@@ -85,6 +114,7 @@ int osaura_display_fill_rect(const osaura_display_rect *rect, uint32_t packed_pi
         volatile uint32_t *row = fb + (uint64_t)y * g_primary.stride_pixels;
         for (uint32_t x = rect->x; x < x_end; ++x) row[x] = packed_pixel;
     }
+    mark_dirty(rect->x, rect->y, x_end - rect->x, y_end - rect->y);
     return 0;
 }
 
@@ -116,5 +146,28 @@ int osaura_display_blit_xrgb(const osaura_display_rect *dst,
         for (uint32_t x = 0u; x < copy_w; ++x)
             row[x] = convert_xrgb(src_row[x]);
     }
+    mark_dirty(dst->x, dst->y, copy_w, copy_h);
     return 0;
+}
+
+int osaura_display_dirty_peek(osaura_display_rect *rect) {
+    if (!rect) return -1;
+    if (!g_dirty_valid) return 0;
+    *rect = g_dirty;
+    return 1;
+}
+
+int osaura_display_dirty_take(osaura_display_rect *rect) {
+    int rc = osaura_display_dirty_peek(rect);
+    if (rc > 0) g_dirty_valid = 0u;
+    return rc;
+}
+
+void osaura_display_dirty_all(void) {
+    if (!g_ready) return;
+    g_dirty.x = 0u;
+    g_dirty.y = 0u;
+    g_dirty.width = g_primary.width;
+    g_dirty.height = g_primary.height;
+    g_dirty_valid = 1u;
 }
