@@ -4,12 +4,14 @@ on:
   push:
     paths:
       - 'boot/**'
+      - 'kernel/**'
       - 'scripts/make-image.sh'
       - 'Makefile'
       - '.github/workflows/osaura-boot-ci.yml'
   pull_request:
     paths:
       - 'boot/**'
+      - 'kernel/**'
       - 'scripts/make-image.sh'
       - 'Makefile'
       - '.github/workflows/osaura-boot-ci.yml'
@@ -25,8 +27,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gnu-efi mtools dosfstools
 
-      - name: Build BOOTX64.EFI
+      - name: Build BOOTX64.EFI and native kernel
         run: make efi
+
+      - name: Validate kernel handoff linkage
+        run: |
+          nm build/bootx64.so | grep -q 'osaura_kernel_main'
+          objdump -h build/bootx64.so | grep -q '.rodata'
+          strings build/bootx64.so | grep -q 'OSAURA KERNEL'
 
       - name: Build USB image
         run: make image
