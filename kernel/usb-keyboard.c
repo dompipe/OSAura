@@ -248,10 +248,6 @@ static uint32_t mmio_read32(volatile uint8_t *base, uint32_t offset) {
     return *(volatile uint32_t *)(void *)(base + offset);
 }
 
-static uint64_t mmio_read64(volatile uint8_t *base, uint32_t offset) {
-    return *(volatile uint64_t *)(void *)(base + offset);
-}
-
 static void mmio_write32(volatile uint8_t *base, uint32_t offset, uint32_t value) {
     *(volatile uint32_t *)(void *)(base + offset) = value;
 }
