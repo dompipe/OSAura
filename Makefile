@@ -61,13 +61,13 @@ $(KERNEL_OBJ): kernel/kernel.c kernel/boot-info.h kernel/mm.h kernel/scheduler.h
 $(MM_OBJ): kernel/mm.c kernel/mm.h kernel/boot-info.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(SCHED_OBJ): kernel/scheduler.c kernel/scheduler.h runtime/jx/jx-runtime.h | $(BUILD)
+$(SCHED_OBJ): kernel/scheduler.c kernel/scheduler.h kernel/security.h runtime/jx/jx-runtime.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(USB_OBJ): kernel/usb.c kernel/usb.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -Wno-unused-function -c $< -o $@
 
-$(USB_HOT_OBJ): kernel/usb-hot.c kernel/usb-hot.h kernel/usb.h kernel/hot-shadow.h | $(BUILD)
+$(USB_HOT_OBJ): kernel/usb-hot.c kernel/usb-hot.h kernel/usb.h kernel/hot-shadow.h kernel/security.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(E1000_OBJ): kernel/e1000.c kernel/e1000.h | $(BUILD)
@@ -79,7 +79,7 @@ $(NET_OBJ): kernel/net.c kernel/net.h kernel/e1000.h | $(BUILD)
 $(WIFI_OBJ): kernel/wifi.c kernel/wifi.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(WIFI_HOT_OBJ): kernel/wifi-hot.c kernel/wifi-hot.h kernel/wifi.h kernel/hot-shadow.h | $(BUILD)
+$(WIFI_HOT_OBJ): kernel/wifi-hot.c kernel/wifi-hot.h kernel/wifi.h kernel/hot-shadow.h kernel/security.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(CLOCK_HOT_OBJ): kernel/clock-hot.c kernel/clock-hot.h kernel/hot-shadow.h | $(BUILD)
@@ -91,7 +91,7 @@ $(MEMORY_HOT_OBJ): kernel/memory-hot.c kernel/memory-hot.h kernel/hot-shadow.h |
 $(TASK_HOT_OBJ): kernel/task-hot.c kernel/task-hot.h kernel/scheduler.h kernel/hot-shadow.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(VFS_OBJ): kernel/vfs.c kernel/vfs.h kernel/storage.h kernel/hot-shadow.h | $(BUILD)
+$(VFS_OBJ): kernel/vfs.c kernel/vfs.h kernel/storage.h kernel/hot-shadow.h kernel/security.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(BOOK_HOT_OBJ): kernel/book-hot.c kernel/book-hot.h kernel/hot-shadow.h runtime/jx/jx-runtime.h | $(BUILD)
@@ -103,7 +103,7 @@ $(SECURITY_OBJ): kernel/security.c kernel/security.h kernel/hot-shadow.h | $(BUI
 $(HOT_SHADOW_OBJ): kernel/hot-shadow.c kernel/hot-shadow.h kernel/usb-hot.h kernel/wifi-hot.h kernel/clock-hot.h kernel/memory-hot.h kernel/task-hot.h kernel/vfs.h kernel/book-hot.h kernel/security.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(STORAGE_OBJ): kernel/storage.c kernel/storage.h kernel/hot-shadow.h | $(BUILD)
+$(STORAGE_OBJ): kernel/storage.c kernel/storage.h kernel/hot-shadow.h kernel/security.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(IPC_OBJ): kernel/ipc.c kernel/ipc.h kernel/hot-shadow.h | $(BUILD)
@@ -114,7 +114,7 @@ $(JX_RUNTIME_OBJ): runtime/jx/jx-runtime.c runtime/jx/jx-live-tail.c runtime/jx/
 		$(CC) $(KERNEL_CFLAGS) -Dosaura_jx_runtime_task=osaura_jx_runtime_task_legacy \
 		-x c -c - -o $@
 
-$(JX_LIVE_OBJ): runtime/jx/jx-live.c runtime/jx/jx-runtime.h | $(BUILD)
+$(JX_LIVE_OBJ): runtime/jx/jx-live.c runtime/jx/jx-runtime.h kernel/security.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(ARCH_OBJ): kernel/x86_64.S | $(BUILD)
