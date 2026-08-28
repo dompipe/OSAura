@@ -2,7 +2,9 @@
 
 #include "../../include/osaura/socket.h"
 #include "../../kernel/security.h"
+#include "../../runtime/jx/jx11-display.h"
 #include "socket-winsock.h"
+#include "display-win32.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -11,8 +13,10 @@
 #include <string.h>
 #include <ctype.h>
 
-#define WSJX_VERSION "0.1-dev"
+#define WSJX_VERSION "0.2-dev"
 #define LINE_BYTES 512u
+#define WSJX_DISPLAY_WIDTH 1024u
+#define WSJX_DISPLAY_HEIGHT 768u
 
 typedef struct {
     uint8_t jxl_mode;
@@ -61,7 +65,7 @@ static void print_banner(const wsjx_state *state) {
     printf("MODE: %s\n", state->jxl_mode ? "JXL" : "JX");
     puts("SECURITY SUBJECT 1: ACTIVE");
     printf("NETWORK: %s\n", state->socket_ready ? "WINSOCK BACKEND" : "UNAVAILABLE");
-    printf("JX11 DISPLAY: %s\n", state->display_ready ? "ACTIVE" : "BACKEND NOT INSTALLED");
+    printf("JX11 DISPLAY: %s\n", state->display_ready ? "WIN32 DIB BACKEND" : "UNAVAILABLE");
     puts("F0-FF: RESERVED");
     puts("");
 }
@@ -76,7 +80,9 @@ static void print_help(void) {
     puts("SOCKET               open/close a JX TCP socket through Winsock");
     puts("LOAD <path>          load a binary module into WSJX state");
     puts("UNLOAD               release loaded module state");
-    puts("DISPLAY              show JX11 display backend state");
+    puts("DISPLAY              show JX11 display geometry");
+    puts("DISPLAY OPEN         show the JX11 Windows surface");
+    puts("DISPLAY TEST         draw through JX11 and present");
     puts("CLEAR                clear the console");
     puts("EXIT                 leave WSJX");
 }
@@ -100,6 +106,29 @@ static int socket_self_test(void) {
     if (rc != 0) return rc;
     if (socket_id == OSAURA_SOCKET_NONE) return -100;
     return osaura_socket_close_as(OSAURA_SECURITY_JX_SUBJECT, socket_id);
+}
+
+static int display_info(void) {
+    osaura_jx11_display_info info;
+    int rc = osaura_jx11_display_get_info(&info);
+    if (rc != 0) return rc;
+    printf("JX11 DISPLAY: %ux%u STRIDE %u FORMAT %u\n",
+           info.width, info.height, info.stride_pixels, info.pixel_format);
+    return 0;
+}
+
+static int display_test(void) {
+    osaura_jx11_fill_request panel = {64u, 64u, 896u, 640u, 0x00161b22u};
+    osaura_jx11_fill_request bar = {96u, 112u, 832u, 72u, 0x002c7be5u};
+    osaura_jx11_fill_request left = {96u, 216u, 384u, 424u, 0x00202731u};
+    osaura_jx11_fill_request right = {512u, 216u, 416u, 424u, 0x00303945u};
+    int rc = osaura_jx11_display_clear(0x000b0e12u);
+    if (rc != 0) return rc;
+    if ((rc = osaura_jx11_display_fill(&panel)) != 0) return rc;
+    if ((rc = osaura_jx11_display_fill(&bar)) != 0) return rc;
+    if ((rc = osaura_jx11_display_fill(&left)) != 0) return rc;
+    if ((rc = osaura_jx11_display_fill(&right)) != 0) return rc;
+    return osaura_windows_display_present();
 }
 
 static int load_module(wsjx_state *state, const char *path) {
@@ -129,12 +158,25 @@ static int load_module(wsjx_state *state, const char *path) {
 static void print_status(const wsjx_state *state) {
     printf("MODE: %s\n", state->jxl_mode ? "JXL" : "JX");
     printf("NETWORK: %s\n", state->socket_ready ? "READY" : "UNAVAILABLE");
-    printf("DISPLAY: %s\n", state->display_ready ? "READY" : "PENDING WIN32 JX11 DRIVER");
+    printf("DISPLAY: %s\n", state->display_ready ? "JX11 WIN32 READY" : "UNAVAILABLE");
     printf("SECURITY GENERATION: %llu\n", (unsigned long long)osaura_security_generation());
     if (state->loaded_bytes)
         printf("MODULE: %s (%u bytes)\n", state->loaded_path, state->loaded_bytes);
     else
         puts("MODULE: NONE");
+}
+
+static void clear_console(void) {
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    DWORD written = 0;
+    if (h != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(h, &info)) {
+        DWORD cells = (DWORD)info.dwSize.X * (DWORD)info.dwSize.Y;
+        COORD home = {0, 0};
+        FillConsoleOutputCharacterA(h, ' ', cells, home, &written);
+        FillConsoleOutputAttribute(h, info.wAttributes, cells, home, &written);
+        SetConsoleCursorPosition(h, home);
+    }
 }
 
 int main(int argc, char **argv) {
@@ -143,6 +185,8 @@ int main(int argc, char **argv) {
 
     osaura_security_init();
     state.socket_ready = osaura_windows_socket_backend_install() == 0 ? 1u : 0u;
+    state.display_ready = osaura_windows_display_backend_install(
+        WSJX_DISPLAY_WIDTH, WSJX_DISPLAY_HEIGHT) == 0 ? 1u : 0u;
 
     print_banner(&state);
 
@@ -150,12 +194,14 @@ int main(int argc, char **argv) {
         int rc = load_module(&state, argv[1]);
         if (rc != 0) {
             fprintf(stderr, "WSJX: failed to load module (%d): %s\n", rc, argv[1]);
+            osaura_windows_display_shutdown();
             return 2;
         }
     }
 
     char line[LINE_BYTES];
     for (;;) {
+        (void)osaura_windows_display_pump();
         fputs("WSJX> ", stdout);
         fflush(stdout);
         if (!fgets(line, sizeof line, stdin)) break;
@@ -186,25 +232,29 @@ int main(int argc, char **argv) {
             puts("MODULE: NONE");
         }
         else if (text_equal(line, "DISPLAY")) {
-            puts(state.display_ready ? "JX11 DISPLAY: ACTIVE" :
-                 "JX11 DISPLAY: WIN32 SURFACE DRIVER NOT INSTALLED YET");
+            int rc = state.display_ready ? display_info() : -1;
+            if (rc != 0) printf("JX11 DISPLAY: FAIL (%d)\n", rc);
         }
-        else if (text_equal(line, "CLEAR")) {
-            HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-            CONSOLE_SCREEN_BUFFER_INFO info;
-            DWORD written = 0;
-            if (h != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(h, &info)) {
-                DWORD cells = (DWORD)info.dwSize.X * (DWORD)info.dwSize.Y;
-                COORD home = {0, 0};
-                FillConsoleOutputCharacterA(h, ' ', cells, home, &written);
-                FillConsoleOutputAttribute(h, info.wAttributes, cells, home, &written);
-                SetConsoleCursorPosition(h, home);
-            }
+        else if (text_equal(line, "DISPLAY OPEN")) {
+            int rc = state.display_ready ? osaura_windows_display_show() : -1;
+            printf("JX11 DISPLAY OPEN: %s", rc == 0 ? "PASS" : "FAIL");
+            if (rc != 0) printf(" (%d)", rc);
+            puts("");
         }
+        else if (text_equal(line, "DISPLAY TEST")) {
+            int rc = state.display_ready ? display_test() : -1;
+            printf("JX11 DISPLAY TEST: %s", rc == 0 ? "PASS" : "FAIL");
+            if (rc != 0) printf(" (%d)", rc);
+            puts("");
+        }
+        else if (text_equal(line, "CLEAR")) clear_console();
         else if (text_equal(line, "EXIT") || text_equal(line, "HALT")) break;
         else puts("UNKNOWN COMMAND - TYPE HELP");
+
+        (void)osaura_windows_display_pump();
     }
 
+    osaura_windows_display_shutdown();
     return 0;
 }
 
