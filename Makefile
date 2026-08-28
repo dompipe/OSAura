@@ -3,6 +3,7 @@ EFI := $(BUILD)/BOOTX64.EFI
 LOADER_OBJ := $(BUILD)/loader.o
 KERNEL_OBJ := $(BUILD)/kernel.o
 MM_OBJ := $(BUILD)/mm.o
+SCHED_OBJ := $(BUILD)/scheduler.o
 ARCH_OBJ := $(BUILD)/x86_64.o
 SO := $(BUILD)/bootx64.so
 
@@ -36,17 +37,20 @@ $(BUILD):
 $(LOADER_OBJ): boot/uefi/main.c kernel/boot-info.h | $(BUILD)
 	$(CC) $(LOADER_CFLAGS) -c $< -o $@
 
-$(KERNEL_OBJ): kernel/kernel.c kernel/boot-info.h kernel/mm.h | $(BUILD)
+$(KERNEL_OBJ): kernel/kernel.c kernel/boot-info.h kernel/mm.h kernel/scheduler.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(MM_OBJ): kernel/mm.c kernel/mm.h kernel/boot-info.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
+$(SCHED_OBJ): kernel/scheduler.c kernel/scheduler.h | $(BUILD)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
 $(ARCH_OBJ): kernel/x86_64.S | $(BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
 
-$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(ARCH_OBJ)
-	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
+$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(ARCH_OBJ)
+	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
 
 $(EFI): $(SO)
 	$(OBJCOPY) \
