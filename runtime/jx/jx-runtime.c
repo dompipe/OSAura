@@ -36,7 +36,9 @@
 #define JX_GENERATION_MAX 8u
 #define JX_HOT_ROUTE_MAX 32u
 #define JX_HOT_AXIS 8u
+#define JX_HOT_ROUTE_INDEX_COUNT 512u
 #define JX_ROUTE_NONE 0xffu
+#define JX_HOT_BASE 0x80u
 
 #define JX_NATIVE_HEARTBEAT_INC 1u
 #define JX_NATIVE_REACTION_RUN_INC 2u
@@ -108,12 +110,14 @@ typedef struct {
     uint8_t generation;
     uint8_t family;
     uint8_t slot;
-    uint8_t promoted_opcode;
-    uint8_t micro_slot;
+    uint8_t hot_opcode;
+    uint8_t selector0;
     uint8_t arity;
     uint8_t native_operation;
     uint8_t flags;
 } jx_call_row;
+
+typedef int (*jx_prepared_exec_fn)(uint64_t arg0);
 
 typedef struct {
     uint8_t generation;
@@ -122,6 +126,7 @@ typedef struct {
     uint8_t selector0;
     uint8_t width;
     uint16_t code_offset;
+    jx_prepared_exec_fn exec;
 } jx_prepared_binding;
 
 typedef struct {
@@ -148,10 +153,9 @@ typedef struct {
     uint8_t slot;
     uint8_t shadow;
     uint8_t delivery;
-    uint8_t frame_register;
     uint8_t immediate;
     uint16_t reaction_id;
-    uint8_t prepared_index;
+    jx_prepared_exec_fn exec;
 } jx_hot_route;
 
 typedef struct {
@@ -161,7 +165,7 @@ typedef struct {
     size_t prepared_count;
     jx_hot_route routes[JX_HOT_ROUTE_MAX];
     size_t route_count;
-    uint8_t route_index[JX_HOT_AXIS][JX_HOT_AXIS][JX_HOT_AXIS];
+    uint8_t route_index[JX_HOT_ROUTE_INDEX_COUNT];
 } jx_generation_root;
 
 typedef int (*jx_channel_receive_fn)(uint16_t channel_id,
@@ -617,7 +621,7 @@ static int load_jx64(const uint8_t *book, size_t book_bytes, jx64_book_view *vie
     if (!bytes_equal(manifest_digest, header + 16u, sizeof manifest_digest)) return -8;
     if (!find_literal(manifest_entry.data, manifest_entry.data_bytes, "\"format\":\"jx.64B/1\"")) return -9;
     if (!find_literal(manifest_entry.data, manifest_entry.data_bytes, "\"kind\":\"compiled-book\"")) return -10;
-    if (!find_literal(manifest_entry.data, manifest_entry.data_bytes, "\"compiler\":\"osaura-bootstrap/2\"")) return -11;
+    if (!find_literal(manifest_entry.data, manifest_entry.data_bytes, "\"compiler\":\"osaura-bootstrap/3\"")) return -11;
 
     view->major = major;
     view->minor = minor;
@@ -675,15 +679,15 @@ static int read_call_row(size_t index, jx_call_row *row) {
     const uint8_t *data = g_book.hot_calls;
     size_t bytes = g_book.hot_calls_bytes;
     if (!data || bytes < 12u || !bytes_equal(data, magic, sizeof magic)) return 0;
-    if (read_le16(data + 8u) != 3u) return 0;
+    if (read_le16(data + 8u) != 4u) return 0;
     uint16_t count = read_le16(data + 10u);
     if (index >= count || 12u + (size_t)count * 8u != bytes) return 0;
     const uint8_t *p = data + 12u + index * 8u;
     row->generation = p[0];
     row->family = p[1];
     row->slot = p[2];
-    row->promoted_opcode = p[3];
-    row->micro_slot = p[4];
+    row->hot_opcode = p[3];
+    row->selector0 = p[4];
     row->arity = p[5];
     row->native_operation = p[6];
     row->flags = p[7];
@@ -748,62 +752,70 @@ static jx_generation_root *find_root(uint64_t generation) {
     return NULL;
 }
 
+static int prepared_heartbeat_exec(uint64_t arg0);
+static int prepared_reaction_run_exec(uint64_t arg0);
+static int prepared_reaction_value_exec(uint64_t arg0);
+
 static const jx_call_row *find_call_row(uint8_t generation,
                                        uint8_t family,
                                        uint8_t slot,
-                                       uint8_t promoted,
-                                       uint8_t micro,
+                                       uint8_t hot_opcode,
                                        jx_call_row *scratch) {
     size_t count = call_row_count();
     for (size_t i = 0; i < count; ++i) {
         if (!read_call_row(i, scratch)) return NULL;
         if (scratch->generation != generation) continue;
-        if (promoted != 0xffu && scratch->promoted_opcode == promoted) return scratch;
-        if (micro != 0xffu && scratch->micro_slot == micro) return scratch;
-        if (promoted == 0xffu && micro == 0xffu &&
-            scratch->family == family && scratch->slot == slot) return scratch;
+        if (hot_opcode != 0xffu && scratch->hot_opcode == hot_opcode) return scratch;
+        if (hot_opcode == 0xffu && scratch->family == family && scratch->slot == slot) return scratch;
     }
     return NULL;
+}
+
+static jx_prepared_exec_fn native_executor(uint8_t native_operation) {
+    switch (native_operation) {
+        case JX_NATIVE_HEARTBEAT_INC: return prepared_heartbeat_exec;
+        case JX_NATIVE_REACTION_RUN_INC: return prepared_reaction_run_exec;
+        case JX_NATIVE_REACTION_VALUE_ADD: return prepared_reaction_value_exec;
+        default: return NULL;
+    }
 }
 
 static int prelink_one(jx_generation_root *root, size_t offset, jx_prepared_binding *out) {
     if (!root || !out || offset >= g_book.prepared_code_bytes) return -1;
     const uint8_t *code = g_book.prepared_code;
     uint8_t first = code[offset];
-    uint8_t family = 0xffu, slot = 0xffu, promoted = 0xffu, micro = 0xffu;
-    uint8_t selector0 = 0xffu;
-    uint8_t width = 0u;
+    uint8_t family = 0xffu, slot = 0xffu, hot_opcode = 0xffu;
+    uint8_t width;
 
-    if (first >= 0x80u && first < 0xc0u) {
-        promoted = first;
-        width = 1u;
-    } else if (first >= 0xc0u && first < 0xe0u) {
-        micro = (uint8_t)((first >> 3u) & 0x03u);
-        selector0 = (uint8_t)(first & 0x07u);
+    if (first & JX_HOT_BASE) {
+        hot_opcode = first;
         width = 1u;
     } else {
         if (offset + 2u > g_book.prepared_code_bytes) return -2;
-        family = first;
+        family = (uint8_t)(first & 0x7fu);
         slot = code[offset + 1u];
         width = 2u;
     }
 
     jx_call_row scratch;
     const jx_call_row *row = find_call_row((uint8_t)root->generation,
-                                           family, slot, promoted, micro, &scratch);
+                                           family, slot, hot_opcode, &scratch);
     if (!row) return -3;
     if (row->flags != 0u || row->native_operation < JX_NATIVE_HEARTBEAT_INC ||
         row->native_operation > JX_NATIVE_REACTION_VALUE_ADD) return -4;
     if (row->arity > 1u) return -5;
-    if (row->arity == 1u && micro == 0xffu) return -6;
-    if (row->arity == 0u) selector0 = 0xffu;
+    if (row->arity == 1u && row->selector0 >= JX_HOT_AXIS) return -6;
+
+    jx_prepared_exec_fn exec = native_executor(row->native_operation);
+    if (!exec) return -7;
 
     out->generation = (uint8_t)root->generation;
     out->native_operation = row->native_operation;
     out->arity = row->arity;
-    out->selector0 = selector0;
+    out->selector0 = row->arity ? row->selector0 : 0xffu;
     out->width = width;
     out->code_offset = (uint16_t)offset;
+    out->exec = exec;
     return 0;
 }
 
@@ -836,6 +848,10 @@ static int find_reaction(uint8_t generation, uint16_t reaction_id, jx_reaction_r
     return 0;
 }
 
+static inline uint16_t hot_route_key(uint8_t reg, uint8_t slot, uint8_t shadow) {
+    return (uint16_t)(((uint16_t)reg << 6u) | ((uint16_t)slot << 3u) | shadow);
+}
+
 static int prelink_routes(jx_generation_root *root) {
     fill_bytes(root->route_index, JX_ROUTE_NONE, sizeof root->route_index);
     root->route_count = 0u;
@@ -847,13 +863,16 @@ static int prelink_routes(jx_generation_root *root) {
         if (reg.reg >= JX_HOT_AXIS || reg.slot >= JX_HOT_AXIS || reg.shadow >= JX_HOT_AXIS) return -2;
         if (reg.flags != 0u || reg.delivery != 0u) return -3;
         if (root->route_count >= JX_HOT_ROUTE_MAX) return -4;
-        if (root->route_index[reg.reg][reg.slot][reg.shadow] != JX_ROUTE_NONE) return -5;
+        uint16_t key = hot_route_key(reg.reg, reg.slot, reg.shadow);
+        if (root->route_index[key] != JX_ROUTE_NONE) return -5;
 
         jx_reaction_row reaction;
         if (!find_reaction(reg.generation, reg.reaction_id, &reaction)) return -6;
         if (reaction.flags != 0u || reaction.frame_register >= JX_HOT_AXIS) return -7;
         int prepared_index = prepared_index_at(root, reaction.prepared_offset);
         if (prepared_index < 0 || prepared_index > 0xff) return -8;
+        const jx_prepared_binding *binding = &root->prepared[prepared_index];
+        if (!binding->exec || (binding->arity == 1u && binding->selector0 != reaction.frame_register)) return -9;
 
         size_t at = root->route_count++;
         jx_hot_route *route = &root->routes[at];
@@ -861,13 +880,12 @@ static int prelink_routes(jx_generation_root *root) {
         route->slot = reg.slot;
         route->shadow = reg.shadow;
         route->delivery = reg.delivery;
-        route->frame_register = reaction.frame_register;
         route->immediate = reaction.immediate;
         route->reaction_id = reg.reaction_id;
-        route->prepared_index = (uint8_t)prepared_index;
-        root->route_index[reg.reg][reg.slot][reg.shadow] = (uint8_t)at;
+        route->exec = binding->exec;
+        root->route_index[key] = (uint8_t)at;
     }
-    return root->route_count ? 0 : -9;
+    return root->route_count ? 0 : -10;
 }
 
 static int build_generation_roots(void) {
@@ -925,35 +943,36 @@ static void bag_checkpoint(void) {
     g_bag.dirty = 0u;
 }
 
-static int invoke_prelinked(const jx_prepared_binding *binding, const uint64_t frame[JX_HOT_AXIS]) {
-    if (!binding || !frame) return 0;
-    switch (binding->native_operation) {
-        case JX_NATIVE_HEARTBEAT_INC:
-            bag_add(g_layout.heartbeat, 1u);
-            break;
-        case JX_NATIVE_REACTION_RUN_INC:
-            bag_add(g_layout.reaction_runs, 1u);
-            break;
-        case JX_NATIVE_REACTION_VALUE_ADD:
-            if (binding->arity != 1u || binding->selector0 >= JX_HOT_AXIS) return 0;
-            bag_add(g_layout.reaction_value, frame[binding->selector0]);
-            break;
-        default:
-            return 0;
-    }
+static int prepared_heartbeat_exec(uint64_t arg0) {
+    (void)arg0;
+    bag_add(g_layout.heartbeat, 1u);
     bag_add(g_layout.prepared_calls, 1u);
     return 1;
 }
 
-static int hot_dispatch(uint8_t reg, uint8_t slot, uint8_t shadow) {
+static int prepared_reaction_run_exec(uint64_t arg0) {
+    (void)arg0;
+    bag_add(g_layout.reaction_runs, 1u);
+    bag_add(g_layout.prepared_calls, 1u);
+    return 1;
+}
+
+static int prepared_reaction_value_exec(uint64_t arg0) {
+    bag_add(g_layout.reaction_value, arg0);
+    bag_add(g_layout.prepared_calls, 1u);
+    return 1;
+}
+
+static inline int invoke_prelinked(const jx_prepared_binding *binding, uint64_t arg0) {
+    return binding && binding->exec ? binding->exec(arg0) : 0;
+}
+
+static inline int hot_dispatch(uint8_t reg, uint8_t slot, uint8_t shadow) {
     if (!g_active_root || reg >= JX_HOT_AXIS || slot >= JX_HOT_AXIS || shadow >= JX_HOT_AXIS) return 0;
-    uint8_t index = g_active_root->route_index[reg][slot][shadow];
+    uint8_t index = g_active_root->route_index[hot_route_key(reg, slot, shadow)];
     if (index == JX_ROUTE_NONE || index >= g_active_root->route_count) return 0;
     const jx_hot_route *route = &g_active_root->routes[index];
-    const jx_prepared_binding *binding = &g_active_root->prepared[route->prepared_index];
-    uint64_t frame[JX_HOT_AXIS] = {0u,0u,0u,0u,0u,0u,0u,0u};
-    frame[route->frame_register] = route->immediate;
-    if (!invoke_prelinked(binding, frame)) return 0;
+    if (!route->exec || !route->exec(route->immediate)) return 0;
     bag_add(g_layout.hot_dispatches, 1u);
     return 1;
 }
@@ -1184,22 +1203,22 @@ static int execute_applied_entry(uint32_t offset) {
 
 static int prepared_smoke(void) {
     if (!g_active_root || g_active_root->prepared_count < 4u) return 0;
-    uint64_t frame[JX_HOT_AXIS] = {7u,0u,0u,0u,0u,0u,0u,0u};
-    int saw_one = 0, saw_two = 0, saw_micro = 0;
+    int saw_hot_noarg = 0, saw_two = 0, saw_hot_arg = 0;
     for (size_t i = 0; i < g_active_root->prepared_count; ++i) {
         const jx_prepared_binding *binding = &g_active_root->prepared[i];
-        if (binding->width == 1u && binding->arity == 0u && !saw_one) {
-            if (!invoke_prelinked(binding, frame)) return 0;
-            saw_one = 1;
+        uint64_t arg0 = binding->arity ? 7u : 0u;
+        if (binding->width == 1u && binding->arity == 0u && !saw_hot_noarg) {
+            if (!invoke_prelinked(binding, arg0)) return 0;
+            saw_hot_noarg = 1;
         } else if (binding->width == 2u && !saw_two) {
-            if (!invoke_prelinked(binding, frame)) return 0;
+            if (!invoke_prelinked(binding, arg0)) return 0;
             saw_two = 1;
-        } else if (binding->width == 1u && binding->arity == 1u && !saw_micro) {
-            if (!invoke_prelinked(binding, frame)) return 0;
-            saw_micro = 1;
+        } else if (binding->width == 1u && binding->arity == 1u && !saw_hot_arg) {
+            if (!invoke_prelinked(binding, arg0)) return 0;
+            saw_hot_arg = 1;
         }
     }
-    return saw_one && saw_two && saw_micro;
+    return saw_hot_noarg && saw_two && saw_hot_arg;
 }
 
 static void announce_when_admitted(void) {
@@ -1217,6 +1236,7 @@ static void announce_when_admitted(void) {
     serial_text("JX BAG: ACTIVE\n");
     serial_text("JX BAG CHECKPOINT: ACTIVE\n");
     serial_text("JX PREPARED CALLS: ACTIVE\n");
+    serial_text("JX HOT CALL ABI V4: ACTIVE\n");
     serial_text("JX HOT REGISTERS: ACTIVE\n");
     serial_text("JX REACTIONS: ACTIVE\n");
     serial_text("JX GENERATION 1->2: ACTIVE\n");
