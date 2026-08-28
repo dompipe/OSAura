@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "hot-shadow.h"
 
 #define OSAURA_BLOCK_DEVICE_MAX 16u
 #define OSAURA_BLOCK_NAME_MAX 16u
@@ -11,6 +12,28 @@
 #define OSAURA_BLOCK_CAP_WRITE      0x02u
 #define OSAURA_BLOCK_CAP_FLUSH      0x04u
 #define OSAURA_BLOCK_CAP_REMOVABLE  0x08u
+
+/* 3-bit storage hot ABI: exactly eight shadows. */
+typedef enum {
+    OSAURA_STORAGE_READ1   = 0u,
+    OSAURA_STORAGE_WRITE1  = 1u,
+    OSAURA_STORAGE_READN   = 2u,
+    OSAURA_STORAGE_WRITEN  = 3u,
+    OSAURA_STORAGE_APPEND  = 4u,
+    OSAURA_STORAGE_READAT  = 5u,
+    OSAURA_STORAGE_WRITEAT = 6u,
+    OSAURA_STORAGE_COMMIT  = 7u
+} osaura_storage_shadow;
+
+typedef struct {
+    uint32_t device_id;
+    uint64_t lba;
+    uint64_t offset;
+    uint32_t blocks;
+    uint32_t bytes;
+    void *buffer;
+    const void *const_buffer;
+} osaura_storage_request;
 
 typedef int (*osaura_block_read_fn)(void *context,
                                     uint64_t lba,
@@ -42,6 +65,8 @@ typedef struct {
 } osaura_block_info;
 
 void osaura_storage_init(void);
+int osaura_storage_dispatch(uint8_t selector, osaura_storage_request *request);
+const osaura_shadow_table *osaura_storage_shadows(void);
 int osaura_block_register(const osaura_block_driver *driver, uint32_t *device_id);
 uint32_t osaura_block_device_count(void);
 int osaura_block_info(uint32_t device_id, osaura_block_info *info);
