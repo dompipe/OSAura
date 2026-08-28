@@ -8,6 +8,7 @@ USB_OBJ := $(BUILD)/usb.o
 E1000_OBJ := $(BUILD)/e1000.o
 NET_OBJ := $(BUILD)/net.o
 WIFI_OBJ := $(BUILD)/wifi.o
+STORAGE_OBJ := $(BUILD)/storage.o
 JX_RUNTIME_OBJ := $(BUILD)/jx-runtime.o
 JX_LIVE_OBJ := $(BUILD)/jx-live.o
 ARCH_OBJ := $(BUILD)/x86_64.o
@@ -47,7 +48,7 @@ $(BUILD):
 $(LOADER_OBJ): boot/uefi/main.c kernel/boot-info.h | $(BUILD)
 	$(CC) $(LOADER_CFLAGS) -c $< -o $@
 
-$(KERNEL_OBJ): kernel/kernel.c kernel/boot-info.h kernel/mm.h kernel/scheduler.h kernel/usb.h kernel/net.h kernel/wifi.h runtime/jx/jx-runtime.h | $(BUILD)
+$(KERNEL_OBJ): kernel/kernel.c kernel/boot-info.h kernel/mm.h kernel/scheduler.h kernel/usb.h kernel/net.h kernel/wifi.h kernel/storage.h runtime/jx/jx-runtime.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(MM_OBJ): kernel/mm.c kernel/mm.h kernel/boot-info.h | $(BUILD)
@@ -68,6 +69,9 @@ $(NET_OBJ): kernel/net.c kernel/net.h kernel/e1000.h | $(BUILD)
 $(WIFI_OBJ): kernel/wifi.c kernel/wifi.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
+$(STORAGE_OBJ): kernel/storage.c kernel/storage.h | $(BUILD)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
 # Keep the already-gated verifier/prelinker source intact. The live tail is
 # concatenated into the same translation unit so it can reuse private verifier,
 # Bag, channel, and root state without making those internals public ABI.
@@ -84,8 +88,8 @@ $(JX_LIVE_OBJ): runtime/jx/jx-live.c runtime/jx/jx-runtime.h | $(BUILD)
 $(ARCH_OBJ): kernel/x86_64.S | $(BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
 
-$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
-	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
+$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(STORAGE_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
+	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(STORAGE_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
 
 $(EFI): $(SO)
 	$(OBJCOPY) \
