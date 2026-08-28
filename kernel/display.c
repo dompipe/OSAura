@@ -150,6 +150,13 @@ int osaura_display_blit_xrgb(const osaura_display_rect *dst,
     return 0;
 }
 
+int osaura_display_mark_dirty(const osaura_display_rect *rect) {
+    if (!rect) return -1;
+    if (!g_ready) return -2;
+    mark_dirty(rect->x, rect->y, rect->width, rect->height);
+    return 0;
+}
+
 int osaura_display_dirty_peek(osaura_display_rect *rect) {
     if (!rect) return -1;
     if (!g_dirty_valid) return 0;
