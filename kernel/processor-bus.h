@@ -44,6 +44,7 @@ typedef struct {
     uint64_t generation;
     uint64_t route_bits;
     uint16_t changed_bits;       /* route-index bits, not PID bits */
+    uint16_t bus_woke_bits;      /* route-index bits: bus changed sleeping -> awake */
     uint8_t route_count;
     uint8_t route_cursor;
     uint8_t phase;
@@ -72,6 +73,7 @@ typedef struct {
     uint32_t (*task_count)(void *context);
     int (*is_program)(uint32_t pid, void *context);
     uint32_t (*foreground_pid)(void *context);
+    int (*is_awake)(uint32_t pid, void *context);
     int (*wake)(uint32_t pid, void *context);
     int (*sleep)(uint32_t pid, void *context);
 } osaura_processor_bus_backend;
@@ -82,7 +84,7 @@ void osaura_processor_bus_reset(void);
 /* Begin CHECK traversal. Foreground first, then every other live program by PID. */
 int osaura_processor_bus_publish(const osaura_processor_bus_change *change);
 
-/* Only the currently woken PID may observe or acknowledge the generation. */
+/* Only the currently selected PID may observe or acknowledge the generation. */
 int osaura_processor_bus_view_for(uint32_t pid, osaura_processor_bus_view *view);
 int osaura_processor_bus_ack(uint32_t pid,
                              int changed,
