@@ -3,6 +3,7 @@
 #include "scheduler.h"
 #include "usb.h"
 #include "net.h"
+#include "hot-shadow.h"
 
 #define GLYPH_W 5u
 #define GLYPH_H 7u
@@ -31,6 +32,30 @@
 #define TERMINAL_COUNT 4u
 #define TERMINAL_COLS_MAX 160u
 #define TERMINAL_ROWS_MAX 64u
+
+/* Bank 4: input 0xA0..0xA7. */
+enum {
+    INPUT_HOT_POLL = 0u,
+    INPUT_HOT_POP = 1u,
+    INPUT_HOT_PUSH = 2u,
+    INPUT_HOT_PS2 = 3u,
+    INPUT_HOT_USB = 4u,
+    INPUT_HOT_MODIFIERS = 5u,
+    INPUT_HOT_READY = 6u,
+    INPUT_HOT_WAKE = 7u
+};
+
+/* Bank 5: terminal 0xA8..0xAF. */
+enum {
+    TERMINAL_HOT_WRITE_CHAR = 0u,
+    TERMINAL_HOT_ERASE = 1u,
+    TERMINAL_HOT_NEWLINE = 2u,
+    TERMINAL_HOT_SWITCH = 3u,
+    TERMINAL_HOT_CLEAR = 4u,
+    TERMINAL_HOT_RENDER = 5u,
+    TERMINAL_HOT_PROMPT = 6u,
+    TERMINAL_HOT_SEED = 7u
+};
 
 extern void osaura_arch_load_gdt(void);
 extern void osaura_arch_load_idt(const void *base, uint16_t limit);
@@ -66,6 +91,13 @@ typedef struct {
     uint32_t length;
     uint8_t initialized;
 } terminal_session;
+
+typedef struct {
+    uint8_t usage;
+    uint8_t modifiers;
+    uint8_t pressed;
+    char character;
+} input_push_request;
 
 static osaura_boot_info g_boot;
 static idt_gate g_idt[IDT_ENTRIES];
@@ -108,7 +140,7 @@ static inline uint8_t in8(uint16_t port) {
 }
 
 static inline void out8(uint16_t port, uint8_t value) {
-    __asm__ volatile("outb %0, %1" : : "a"(value), "Nd"(port));
+    __asm__ volatile("outb %0, %1" : : "a"(value) : "Nd"(port));
 }
 
 static inline void io_wait(void) { out8(0x80u, 0u); }
@@ -308,6 +340,57 @@ static void terminal_switch_next(void) {
     serial_text("\n");
 }
 
+static int hot_terminal_write_char(void *context, void *request) {
+    (void)context;
+    if (!request) return -1;
+    draw_char(*(const char *)request);
+    return 1;
+}
+
+static int hot_terminal_erase(void *context, void *request) {
+    (void)context; (void)request;
+    erase_char();
+    return 1;
+}
+
+static int hot_terminal_newline(void *context, void *request) {
+    (void)context; (void)request;
+    draw_char('\n');
+    return 1;
+}
+
+static int hot_terminal_switch(void *context, void *request) {
+    (void)context; (void)request;
+    terminal_switch_next();
+    return 1;
+}
+
+static int hot_terminal_clear(void *context, void *request) {
+    (void)context; (void)request;
+    clear_screen();
+    return 1;
+}
+
+static int hot_terminal_render(void *context, void *request) {
+    (void)context;
+    if (!request) return -1;
+    terminal_render(*(const uint8_t *)request);
+    return 1;
+}
+
+static int hot_terminal_prompt(void *context, void *request) {
+    (void)context; (void)request;
+    print_prompt();
+    return 1;
+}
+
+static int hot_terminal_seed(void *context, void *request) {
+    (void)context;
+    if (!request) return -1;
+    terminal_seed(*(const uint8_t *)request);
+    return 1;
+}
+
 static void idt_set_gate(uint8_t vector, void *handler) {
     uint64_t address = (uint64_t)(uintptr_t)handler;
     idt_gate *gate = &g_idt[vector];
@@ -464,10 +547,93 @@ static void keyboard_irq(void) {
     if (usage || c) keyboard_push_event(usage, g_ps2_modifiers, released ? 0u : 1u, c);
 }
 
-static int input_pop_event(osaura_key_event *event) {
+static int input_pop_event_raw(osaura_key_event *event) {
     osaura_usb_poll();
     if (osaura_usb_keyboard_ready()) return osaura_usb_keyboard_event_pop(event);
     return keyboard_pop_event(event);
+}
+
+static int hot_input_poll(void *context, void *request) {
+    (void)context; (void)request;
+    osaura_usb_poll();
+    return 1;
+}
+
+static int hot_input_pop(void *context, void *request) {
+    (void)context;
+    return input_pop_event_raw((osaura_key_event *)request);
+}
+
+static int hot_input_push(void *context, void *request) {
+    (void)context;
+    if (!request) return -1;
+    const input_push_request *r = (const input_push_request *)request;
+    keyboard_push_event(r->usage, r->modifiers, r->pressed, r->character);
+    return 1;
+}
+
+static int hot_input_ps2(void *context, void *request) {
+    (void)context; (void)request;
+    keyboard_irq();
+    return 1;
+}
+
+static int hot_input_usb(void *context, void *request) {
+    (void)context;
+    return osaura_usb_keyboard_event_pop((osaura_key_event *)request);
+}
+
+static int hot_input_modifiers(void *context, void *request) {
+    (void)context;
+    if (!request) return -1;
+    *(uint8_t *)request = g_ps2_modifiers;
+    return 1;
+}
+
+static int hot_input_ready(void *context, void *request) {
+    (void)context; (void)request;
+    return osaura_usb_keyboard_ready() || g_key_tail != g_key_head;
+}
+
+static int hot_input_wake(void *context, void *request) {
+    (void)context; (void)request;
+    return 1;
+}
+
+static void io_hot_bind(void) {
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_POLL, hot_input_poll, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_POP, hot_input_pop, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_PUSH, hot_input_push, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_PS2, hot_input_ps2, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_USB, hot_input_usb, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_MODIFIERS, hot_input_modifiers, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_READY, hot_input_ready, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_WAKE, hot_input_wake, 0);
+
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_WRITE_CHAR, hot_terminal_write_char, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_ERASE, hot_terminal_erase, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_NEWLINE, hot_terminal_newline, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_SWITCH, hot_terminal_switch, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_CLEAR, hot_terminal_clear, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_RENDER, hot_terminal_render, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_PROMPT, hot_terminal_prompt, 0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_SEED, hot_terminal_seed, 0);
+}
+
+static int input_pop_event(osaura_key_event *event) {
+    return osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_INPUT, INPUT_HOT_POP), event);
+}
+
+static void terminal_hot_char(char c) {
+    (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_WRITE_CHAR), &c);
+}
+
+static void terminal_hot_erase(void) {
+    (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_ERASE), 0);
+}
+
+static void terminal_hot_switch(void) {
+    (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_SWITCH), 0);
 }
 
 void osaura_interrupt_dispatch(uint64_t vector, uint64_t error_code) {
@@ -483,7 +649,8 @@ void osaura_interrupt_dispatch(uint64_t vector, uint64_t error_code) {
     if (vector >= IRQ_BASE && vector < IRQ_BASE + 16u) {
         uint8_t irq = (uint8_t)(vector - IRQ_BASE);
         if (irq == IRQ_TIMER) ++osaura_ticks;
-        else if (irq == IRQ_KEYBOARD) keyboard_irq();
+        else if (irq == IRQ_KEYBOARD)
+            (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_INPUT, INPUT_HOT_PS2), 0);
         pic_eoi(irq);
     }
 }
@@ -654,16 +821,17 @@ static void run_command(const char *line) {
 }
 
 __attribute__((noreturn)) static void terminal_loop(void) {
-    terminal_seed(0u);
+    uint8_t terminal_zero = 0u;
+    (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_SEED), &terminal_zero);
     osaura_scheduler_start();
     for (;;) {
         osaura_key_event event;
-        if (!input_pop_event(&event)) {
+        if (input_pop_event(&event) <= 0) {
             __asm__ volatile("hlt");
             continue;
         }
         if (event.pressed && event.usage == OSAURA_KEY_TAB && (event.modifiers & OSAURA_KEY_MOD_ALT)) {
-            terminal_switch_next();
+            terminal_hot_switch();
             continue;
         }
         if (!event.pressed) continue;
@@ -671,20 +839,20 @@ __attribute__((noreturn)) static void terminal_loop(void) {
         if (!c || c == '\t') continue;
         terminal_session *term = active_terminal();
         if (c == '\b') {
-            if (term->length) { --term->length; erase_char(); }
+            if (term->length) { --term->length; terminal_hot_erase(); }
             continue;
         }
         if (c == '\n') {
             term->line[term->length] = 0;
-            draw_char('\n');
+            terminal_hot_char('\n');
             run_command(term->line);
             term->length = 0u;
-            print_prompt();
+            (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_PROMPT), 0);
             continue;
         }
         if (term->length + 1u < LINE_MAX) {
             term->line[term->length++] = c;
-            draw_char(c);
+            terminal_hot_char(c);
         }
     }
 }
@@ -722,6 +890,10 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     osaura_net_init();
     serial_text("BOOT: NETWORK CORE READY\n");
 
+    /* Bind input/terminal after earlier subsystems so we never reset the global map. */
+    io_hot_bind();
+    serial_text("BOOT: INPUT TERMINAL HOT SHADOWS READY\n");
+
     interrupts_init();
     serial_text("BOOT: WAIT IRQ0\n");
     wait_for_timer_irq();
@@ -741,14 +913,16 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     write_text("IDT: ACTIVE\n");
     write_text("PIC: REMAPPED 32-47\n");
     write_text("PIT IRQ0: ACTIVE\n");
-    write_text("PS2 IRQ1: ACTIVE\n");
+    write_text("PS2 IRQ1: HOT 0xA3\n");
     write_text(usb_ok ? "USB XHCI: ACTIVE\n" : "USB XHCI: FALLBACK\n");
     write_text(osaura_usb_keyboard_ready() ? "USB HID KEYBOARD: ACTIVE\n" : "USB HID KEYBOARD: NOT FOUND\n");
+    write_text("INPUT HOT BANK: 0xA0-0xA7\n");
+    write_text("TERMINAL HOT BANK: 0xA8-0xAF\n");
     write_text("NETWORK RECOVERY COMMANDS: ACTIVE\n");
     write_text(allocator_ok ? "PAGE ALLOCATOR: ACTIVE\n" : "PAGE ALLOCATOR: FAILED\n");
     write_text("SCHEDULER: READY\n");
     write_text("VIRTUAL TERMINALS: 4\n");
-    write_text("ALT-TAB TERMINAL SWITCH: ACTIVE\n");
+    write_text("ALT-TAB TERMINAL SWITCH: HOT 0xAB\n");
     write_text("SERIAL COM1: ACTIVE\n\n");
     write_text("TYPE HELP FOR COMMANDS\n\n");
     terminal_loop();
