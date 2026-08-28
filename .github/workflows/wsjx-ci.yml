@@ -57,9 +57,13 @@ jobs:
         with:
           arch: x64
 
+      - name: Compile runtime64 core
+        shell: cmd
+        run: cl /nologo /W4 /WX /c host\windows\runtime64.c /DOSAURA_RUNTIME64_SOURCE /Iinclude /Ikernel /Iruntime\jx /Foruntime64.obj
+
       - name: Build wsjx64.exe
         shell: cmd
-        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c host\windows\vfs64.c host\windows\runtime64.c kernel\socket.c kernel\display.c runtime\jx\jx11-display.c /Iinclude /Ikernel /Iruntime\jx /link /MACHINE:X64 Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx64.exe
+        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c host\windows\vfs64.c kernel\socket.c kernel\display.c runtime\jx\jx11-display.c runtime64.obj /Iinclude /Ikernel /Iruntime\jx /link /MACHINE:X64 Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx64.exe
 
       - name: Verify PE64 machine type
         shell: powershell
