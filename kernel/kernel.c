@@ -29,7 +29,8 @@ extern void osaura_arch_load_gdt(void);
 extern void osaura_arch_load_idt(const void *base, uint16_t limit);
 extern void osaura_arch_enable_interrupts(void);
 extern void osaura_arch_disable_interrupts(void);
-extern void *osaura_isr_table[48];
+extern const uint8_t osaura_isr_anchor[];
+extern const int32_t osaura_isr_offsets[48];
 
 typedef struct __attribute__((packed)) {
     uint16_t offset_low;
@@ -259,8 +260,12 @@ static void idt_init(void) {
         g_idt[i].offset_high = 0;
         g_idt[i].zero = 0;
     }
-    for (uint32_t i = 0; i < 48u; ++i)
-        idt_set_gate((uint8_t)i, osaura_isr_table[i]);
+
+    uintptr_t anchor = (uintptr_t)osaura_isr_anchor;
+    for (uint32_t i = 0; i < 48u; ++i) {
+        intptr_t offset = (intptr_t)osaura_isr_offsets[i];
+        idt_set_gate((uint8_t)i, (void *)(anchor + offset));
+    }
     osaura_arch_load_idt(g_idt, (uint16_t)(sizeof g_idt - 1u));
 }
 
