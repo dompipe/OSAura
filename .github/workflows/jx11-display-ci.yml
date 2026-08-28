@@ -17,10 +17,13 @@ on:
       - 'runtime/jx/jx11-window.h'
       - 'runtime/jx/jx11-window-bag.c'
       - 'runtime/jx/jx11-window-bag.h'
+      - 'runtime/jx/jx11-listener-events.c'
+      - 'runtime/jx/jx11-listener-events.h'
       - 'tests/display-driver-test.c'
       - 'tests/jx11-surface-test.c'
       - 'tests/jx11-window-test.c'
       - 'tests/jx11-window-bag-test.c'
+      - 'tests/jx11-listener-events-test.c'
       - '.github/workflows/jx11-display-ci.yml'
   pull_request:
     paths:
@@ -38,10 +41,13 @@ on:
       - 'runtime/jx/jx11-window.h'
       - 'runtime/jx/jx11-window-bag.c'
       - 'runtime/jx/jx11-window-bag.h'
+      - 'runtime/jx/jx11-listener-events.c'
+      - 'runtime/jx/jx11-listener-events.h'
       - 'tests/display-driver-test.c'
       - 'tests/jx11-surface-test.c'
       - 'tests/jx11-window-test.c'
       - 'tests/jx11-window-bag-test.c'
+      - 'tests/jx11-listener-events-test.c'
       - '.github/workflows/jx11-display-ci.yml'
 
 jobs:
@@ -79,3 +85,11 @@ jobs:
           -Ikernel -Iruntime/jx -o jx11-window-bag-test
       - name: Run JX11 borrowed Bag window-view test
         run: ./jx11-window-bag-test
+      - name: Build JX11 listener event routing test
+        run: >-
+          gcc -std=c11 -Wall -Wextra -Werror -O2
+          kernel/display.c runtime/jx/jx11-surface.c runtime/jx/jx11-window.c runtime/jx/jx11-listener-events.c
+          tests/jx11-listener-events-test.c
+          -Ikernel -Iruntime/jx -o jx11-listener-events-test
+      - name: Run JX11 listener event routing test
+        run: ./jx11-listener-events-test
