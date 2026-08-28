@@ -1,0 +1,34 @@
+name: JX Bag Processor Bus CI
+
+on:
+  push:
+    branches: [jx-live-book-generations]
+    paths:
+      - 'kernel/processor-bus.c'
+      - 'kernel/processor-bus.h'
+      - 'runtime/jx/jx-bag-bus.c'
+      - 'runtime/jx/jx-bag-bus.h'
+      - 'tests/jx-bag-bus-test.c'
+      - '.github/workflows/jx-bag-bus-ci.yml'
+  pull_request:
+    paths:
+      - 'kernel/processor-bus.c'
+      - 'kernel/processor-bus.h'
+      - 'runtime/jx/jx-bag-bus.c'
+      - 'runtime/jx/jx-bag-bus.h'
+      - 'tests/jx-bag-bus-test.c'
+      - '.github/workflows/jx-bag-bus-ci.yml'
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build strict Bag bus bridge test
+        run: >-
+          cc -std=c11 -O2 -Wall -Wextra -Werror
+          kernel/processor-bus.c runtime/jx/jx-bag-bus.c tests/jx-bag-bus-test.c
+          -Ikernel -Iruntime/jx -o /tmp/jx-bag-bus-test
+      - name: Verify borrowed Bag generation publication
+        run: /tmp/jx-bag-bus-test
