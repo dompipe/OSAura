@@ -50,6 +50,7 @@ int osaura_jx_live_book_activate(osaura_jx_live_book *live,
 
     live->active = live->candidate;
     live->active_generation = live->next_generation++;
+    live->has_active = 1u;
     memset(&live->candidate, 0, sizeof live->candidate);
     live->has_candidate = 0u;
     return OSAURA_JXL_OK;
