@@ -29,7 +29,7 @@ int main(void) {
     if (expect(osaura_display_ready(), "ready")) return 1;
 
     osaura_jx11_display_info info = {0};
-    if (expect(osaura_jx11_display_info(&info) == 0, "jx11 info")) return 1;
+    if (expect(osaura_jx11_display_get_info(&info) == 0, "jx11 info")) return 1;
     if (expect(info.width == 4u && info.height == 4u && info.stride_pixels == 6u,
                "surface geometry")) return 1;
 
