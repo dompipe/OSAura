@@ -1,217 +1,355 @@
-# TODO: Windows-hosted OSAura compatibility layer
+# TODO: Windows command-line OSAura emulator
 
 ## Goal
 
-Create a Windows interface, analogous in purpose to WSL, that lets developers run OSAura/JX programs and exercise OSAura kernel-facing APIs without booting the full OSAura image.
+Create a real OSAura emulator that runs inside a normal Windows command-line window. The intended experience is much closer to opening `cmd.exe`, PowerShell, or Windows Terminal and entering OSAura than to running a hidden compatibility service.
 
-The host must emulate OSAura semantics rather than merely wrap Windows command-line tools. Canonical JX source and compiled `.64B` Books should see the same logical kernel contracts they see when running on native OSAura.
-
-## Working name
-
-`OSAura Host for Windows` (`OHW`) until a final product name is chosen.
-
-## Core architecture
+The user launches:
 
 ```text
-Windows process
-    |
-    +-- jx.exe / OSAura host launcher
-    |
-    +-- OSAura ABI compatibility layer
-    |      |
-    |      +-- 0x80-0xEF hot-shadow dispatcher
-    |      +-- security subjects/capabilities
-    |      +-- task/job model
-    |      +-- VFS/storage facade
-    |      +-- IPC/channel bus
-    |      +-- clock/memory primitives
-    |      +-- network/Wi-Fi/USB facades
-    |
-    +-- Windows backend adapters
-           |
-           +-- files/directories -> Win32/NT filesystem
-           +-- sockets -> Winsock
-           +-- clock -> QPC / Windows timers
-           +-- processes/threads -> Windows threads or fibers where appropriate
-           +-- terminal -> ConPTY / console
-           +-- memory -> VirtualAlloc / mapped sections
-           +-- devices -> explicitly virtualized or unavailable
+C:\> osaura.exe
+
+OSAURA EMULATOR FOR WINDOWS
+OSAURA KERNEL ABI: HOSTED
+JX HOT ABI V4: ACTIVE
+SECURITY POLICY: ACTIVE
+VFS: WINDOWS BACKEND
+
+OSAURA> 
 ```
 
-## ABI rule
+From that point forward the window behaves like an OSAura terminal. Commands, JX programs, `.64B` Books, Bags, task state, VFS handles, capabilities, and hot-shadow calls use OSAura semantics while Windows supplies the underlying host resources.
 
-The Windows host must preserve the canonical OSAura hot-call ABI instead of inventing a second runtime model.
+## Product model
+
+This is a **console-hosted OSAura emulator**.
 
 ```text
-1bbbssss                  -> one-byte hot OSAura operation
+Windows Terminal / cmd.exe / PowerShell
+                |
+            osaura.exe
+                |
+        OSAura emulated kernel
+                |
+     +----------+----------+
+     |          |          |
+  JX/.64B      VFS       Tasks
+     |          |          |
+   Bags      Win32 FS   host threads
+     |
+  hot ABI
+```
+
+It should feel like booting directly into OSAura, except that the machine underneath is Windows.
+
+Native OSAura remains the reference implementation. The emulator must reproduce its observable ABI and shell behavior rather than invent a Windows-specific JX environment.
+
+## Primary interface
+
+The normal case is simply:
+
+```text
+osaura.exe
+```
+
+That enters the interactive emulator shell.
+
+Useful launch forms may include:
+
+```text
+osaura.exe
+osaura.exe program.64B
+osaura.exe --jx source.jx
+osaura.exe --image dev.img
+osaura.exe --root C:\OSAuraRoot
+osaura.exe --diagnostic
+```
+
+But the interactive prompt is the primary product surface.
+
+## Emulator boot sequence
+
+`osaura.exe` should perform an OSAura-like hosted boot:
+
+```text
+Windows process start
+        ↓
+initialize hosted OSAura hot table
+        ↓
+initialize security subjects
+        ↓
+initialize clock/memory
+        ↓
+mount Windows-backed VFS root
+        ↓
+initialize task/job table
+        ↓
+initialize JX Book runtime
+        ↓
+run security admission self-test
+        ↓
+create terminal session
+        ↓
+OSAURA>
+```
+
+Expected startup text should deliberately resemble native OSAura diagnostics so developers can compare both environments easily.
+
+## Console behavior
+
+The emulator should work in:
+
+- classic `cmd.exe`
+- PowerShell
+- Windows Terminal
+- VS Code integrated terminal
+
+Use the Windows console directly for the first implementation. ConPTY can be added where richer terminal behavior is needed.
+
+Required behavior:
+
+- normal keyboard input
+- line editing
+- command history
+- Ctrl+C / interrupt handling
+- terminal resize detection
+- ANSI/VT output where available
+- foreground/background OSAura job state
+- multiple emulated terminal sessions later
+
+The terminal shown to the user is an OSAura terminal. Windows console APIs are only the backend.
+
+## OSAura hot ABI
+
+The emulator must preserve the same hot-call layout as native OSAura:
+
+```text
+1bbbssss                  -> one-byte hot operation
 0fffffff xxxxxxxx         -> two-byte extended operation
 ```
 
-The same bank/shadow numbers used by native OSAura should identify the same logical mechanisms in the Windows host. Backend implementation may differ, but JX code must not need source changes merely because execution moved from native OSAura to Windows-hosted OSAura.
-
-## Required compatibility layers
-
-### 1. JX / `.64B` execution
-
-- Load and verify native OSAura `.64B` Books.
-- Reuse ABI v4 one-byte hot calls.
-- Reuse Bag, generation, prepared-call, hot-register, and reaction semantics.
-- Preserve generation swap/checkpoint behavior.
-- Keep canonical JX source independent of the host operating system.
-
-### 2. Security subjects
-
-- Preserve OSAura security subject IDs and capability masks.
-- Kernel-host adapter acts as trusted subject `0`.
-- JX runtime defaults to subject `1`.
-- Never map Windows process ownership directly to OSAura administrator rights without an explicit admission rule.
-- Preserve generation-based capability invalidation when prepared permission tokens are introduced.
-
-### 3. VFS
-
-Expose the OSAura VFS contract through Windows paths while keeping OSAura handles and capability checks above Win32 handles.
-
-Initial mapping proposal:
+Current logical map remains canonical:
 
 ```text
-/host/c/...       -> C:\...
-/host/d/...       -> D:\...
-/home/...         -> configurable OSAura-host home directory
-/tmp/...          -> isolated host temporary directory
+80-87 STORAGE
+88-8F IPC
+90-97 NETWORK
+98-9F JOBS
+A0-A7 INPUT
+A8-AF TERMINAL
+B0-B7 USB
+B8-BF WIFI
+C0-C7 CLOCK
+C8-CF MEMORY
+D0-D7 TASK
+D8-DF VFS
+E0-E7 BOOK
+E8-EF SECURITY
+F0-FF RESERVED
 ```
 
-The Windows backend should not leak raw HANDLE values into JX or OSAura APIs.
+A `.64B` program must not need recompilation merely because it moved between native OSAura and the Windows emulator.
 
-### 4. Storage
+## Hosted kernel mechanism mapping
 
-- Provide virtual block devices backed by Windows files.
-- Allow creation of reproducible disk images for tests.
-- Keep raw block-write capability separate from VFS-write capability.
-- Native physical-drive access should be opt-in and privileged, never the default.
-
-### 5. Tasks/jobs
-
-Map the OSAura scheduler/task model to a Windows-host execution model while preserving OSAura task IDs, subjects, roles, foreground/background state, and task-control capability checks.
-
-Early versions can use cooperative host tasks or Windows threads. The semantic ABI matters more than reproducing native interrupt scheduling exactly.
-
-### 6. IPC/channel bus
-
-- Reuse the JX channel-bus model.
-- Host-local channels should avoid Windows networking when both endpoints are in one process.
-- Optional cross-process transport can use named pipes or shared memory later.
-
-### 7. Networking
-
-Map OSAura socket/network operations to Winsock behind the OSAura network ABI. OSAura `NETWORK` capability must be checked before opening/transmitting through Windows sockets.
-
-Raw Ethernet and adapter-control operations must remain unavailable unless a dedicated privileged backend is explicitly enabled.
-
-### 8. Wi-Fi
-
-Do not pretend Windows gives the same hardware-level control as native OSAura drivers.
-
-Host mode should expose only operations the Windows WLAN APIs can safely provide. Credential-store access remains protected by the separate `WIFI_CREDENTIAL` capability. Native AX200 driver development remains an OSAura-native concern.
-
-### 9. USB
-
-Host USB should begin as capability-aware device enumeration/status with explicitly supported virtual devices. Direct arbitrary USB control transfer passthrough should not be assumed.
-
-### 10. Terminal
-
-Use ConPTY or the Windows console as the backend while preserving OSAura terminal/session semantics above it.
-
-## CLI target
-
-Potential interface:
+### Terminal
 
 ```text
-osaura.exe run program.64B
-osaura.exe jx source.jx
-osaura.exe shell
-osaura.exe mount C:\work /host/work
-osaura.exe image create dev.img 2G
-osaura.exe image attach dev.img
-osaura.exe status
+OSAura terminal calls
+        ↓
+Windows Console / ConPTY
 ```
 
-`jx.exe` may also detect the host automatically and enter the compatibility layer when native OSAura is not present.
+### Clock
 
-## Development phases
+Use `QueryPerformanceCounter`, waitable timers, or suitable Windows timing primitives while returning OSAura clock semantics.
 
-### Phase 1 — Runtime-only host
+### Memory
 
-- Windows executable launches existing JX runtime.
-- ABI v4 hot dispatcher compiled for Win64.
-- Clock, memory, Book, Bag, reactions, security, IPC supported.
-- No fake hardware.
+Use normal process memory and `VirtualAlloc` where page-level behavior is required. Keep OSAura handles/ownership above raw Windows addresses where appropriate.
 
-### Phase 2 — Files and terminal
+### VFS
 
-- VFS path namespace.
-- Win32 file backend.
-- virtual block images.
-- terminal/ConPTY integration.
+Expose an OSAura namespace instead of Windows paths directly.
 
-### Phase 3 — Tasks and networking
-
-- subject-carrying task objects.
-- foreground/background controls.
-- Winsock network adapter.
-- capability enforcement parity tests.
-
-### Phase 4 — Device facade
-
-- Windows WLAN integration.
-- USB enumeration/selected passthrough.
-- explicit unsupported-operation reporting for hardware behavior Windows cannot faithfully expose.
-
-### Phase 5 — Developer integration
-
-- `jx.exe --osaura-host` or equivalent.
-- debugger/profiler hooks.
-- VS Code integration.
-- native-vs-host conformance suite.
-
-## Conformance requirement
-
-Every mechanism implemented in host mode should have paired tests:
+Suggested first mount:
 
 ```text
-same logical call
-    |
-    +-- native OSAura backend
-    +-- Windows host backend
-
-observable semantic result must match
+/              -> isolated OSAura emulator root
+/host/c        -> C:\
+/host/d        -> D:\ when present
+/tmp           -> emulator temp directory
 ```
 
-The host must never silently report success for an unimplemented native mechanism. Unsupported hardware behavior should return an explicit unsupported result.
+Win32 `HANDLE` values must never become OSAura/JX handles.
 
-## Performance objective
+### Storage
 
-The Windows host should preserve the same hot-path principle as native OSAura:
+Virtual block devices should normally be ordinary Windows image files.
+
+```text
+dev.img
+   ↓
+Windows file
+   ↓
+OSAura block driver facade
+   ↓
+80-87 storage shadows
+```
+
+Do not permit raw physical-drive access by default.
+
+### Tasks/jobs
+
+OSAura tasks retain:
+
+- task ID
+- security subject
+- role
+- state
+- foreground/background status
+- ticks/switch counters where meaningful
+
+Windows threads/fibers may implement execution, but Windows thread IDs must not leak into the OSAura ABI.
+
+### IPC
+
+Use in-process queues first. Named pipes/shared memory can provide cross-process emulated IPC later.
+
+### Network
+
+Use Winsock behind the OSAura network ABI. `NETWORK` capability enforcement stays above Winsock.
+
+### Wi-Fi / USB
+
+Only expose operations Windows can faithfully provide. Never manufacture native-hardware success.
+
+Saved Wi-Fi credential access remains separately protected by `WIFI_CREDENTIAL`.
+
+## JX / `.64B`
+
+The Windows emulator should be one of the primary development environments for JX.
+
+Expected interaction:
+
+```text
+C:\> osaura.exe
+OSAURA> jx hello.jx
+JX: COMPILED hello.64B
+OSAURA> run hello.64B
+Hello from OSAura
+OSAURA>
+```
+
+Or:
+
+```text
+C:\> osaura.exe app.64B
+```
+
+The same Book verifier, Bag model, generation swap rules, prepared calls, reactions, and hot-register semantics should be shared with native OSAura wherever practical.
+
+## Shell parity
+
+The emulator shell should intentionally track native OSAura commands.
+
+Initial commands:
+
+```text
+HELP
+ABOUT
+MEM
+VM
+TASKS
+TICKS
+ALLOC
+CLEAR
+HALT
+```
+
+Hosted additions can be clearly marked, for example:
+
+```text
+HOST
+MOUNTS
+WINPATH
+EXIT
+```
+
+`HALT` in hosted mode terminates the emulated machine/process cleanly rather than attempting to halt the Windows CPU.
+
+## Isolation
+
+The emulator should not treat the current Windows user as OSAura kernel subject `0` for ordinary JX programs.
+
+Hosted boot creates the same logical authority split:
+
+```text
+subject 0 -> emulator kernel/backend
+subject 1 -> JX runtime
+other subjects -> programs/services
+```
+
+All normal OSAura capability checks remain active.
+
+## Debug/development advantage
+
+The command-line emulator should make OSAura substantially easier to develop:
+
+- no reboot required
+- no QEMU window required for normal JX work
+- stdout/stderr diagnostics available immediately
+- debugger attachable to `osaura.exe`
+- sanitizer/debug builds possible
+- native-vs-emulator conformance tests easy to automate
+- `.64B` programs can be tested from ordinary Windows terminals
+
+## Conformance rule
+
+For every hosted implementation:
+
+```text
+same OSAura call
+      |
+      +-- native kernel
+      +-- Windows emulator
+
+same observable semantic result
+```
+
+Timing and hardware implementation may differ. ABI meaning, security decisions, handle ownership, Book behavior, and error semantics must match.
+
+Unsupported native-only hardware operations must return an explicit unsupported result.
+
+## Performance rule
+
+Do not translate the full OSAura operation through strings on every call.
 
 ```text
 resolve Windows resource once
-        -> bind OSAura handle/shadow
-        -> repeat through numeric/prelinked path
+        ↓
+bind OSAura handle/shadow
+        ↓
+repeat numeric/prelinked path
 ```
 
-Avoid repeated path parsing, string lookup, capability resolution, or Win32 handle discovery on prepared repeat paths.
+The command-line emulator should therefore preserve the same core rule as native OSAura:
 
-## Architectural boundary
+**resolve cold → bind once → execute hot.**
 
-This is not "OSAura rewritten on Windows."
+## First implementation milestone
 
-It is a host implementation of OSAura mechanisms so that the same JX/OAura execution model can run in two environments:
+Build `host/windows/osaura.exe` that:
 
-```text
-                canonical JX / .64B
-                       |
-                 OSAura ABI
-                  /        \
-          native kernel   Windows host
-```
+1. starts in a normal Windows command-line window;
+2. initializes the OSAura 128-entry hot table;
+3. initializes security, clock, memory, task, VFS, Book, and terminal mechanisms;
+4. prints OSAura boot/status lines;
+5. presents `OSAURA>`;
+6. supports the native basic shell commands;
+7. can load a `.64B` Book;
+8. maps an isolated Windows directory as the emulated root;
+9. exits cleanly with `HALT` or `EXIT`;
+10. has a Windows CI build and a scripted console smoke test.
 
-Native OSAura remains the reference kernel. The Windows host is a compatibility/development environment and must stay subordinate to the canonical OSAura ABI.
+That executable is the desired WSL-like developer experience: **OSAura running interactively inside a Windows command-line window.**
