@@ -11,7 +11,7 @@ static void __cdecl osaura_windows_processor_bus64_crt_bind(void) {
 
 #if defined(_MSC_VER)
 #pragma section(".CRT$XCU", read)
-__declspec(allocate(".CRT$XCU")) static void (__cdecl *osaura_windows_processor_bus64_initializer)(void) =
+__declspec(allocate(".CRT$XCU")) void (__cdecl *osaura_windows_processor_bus64_initializer)(void) =
     osaura_windows_processor_bus64_crt_bind;
 #pragma comment(linker, "/include:osaura_windows_processor_bus64_initializer")
 #else
