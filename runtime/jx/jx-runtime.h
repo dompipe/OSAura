@@ -9,8 +9,9 @@
 #define OSAURA_JX_RUNTIME_TICK_OFFSET 0u
 #define OSAURA_JX_RUNTIME_COLLECT_OFFSET 3u
 
-/* Load the boot Book and queue a second memory-resident Book for live cutover. */
+/* Boot Book load is kernel-only. Live admission has an explicit subject-aware API. */
 int osaura_jx_runtime_load_book(const void *bytes, uint64_t size);
+int osaura_jx_runtime_queue_book_as(uint32_t subject, const void *bytes, uint64_t size);
 int osaura_jx_runtime_queue_book(const void *bytes, uint64_t size);
 int osaura_jx_runtime_book_loaded(void);
 int osaura_jx_runtime_candidate_queued(void);
