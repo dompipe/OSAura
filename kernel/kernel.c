@@ -1,6 +1,7 @@
 #include "boot-info.h"
 #include "mm.h"
 #include "scheduler.h"
+#include "usb-keyboard.h"
 
 #define GLYPH_W 5u
 #define GLYPH_H 7u
@@ -323,7 +324,7 @@ static char ps2_decode_make(uint8_t sc) {
     }
 }
 
-static void keyboard_push(char c) {
+void osaura_keyboard_submit(char c) {
     uint8_t next = (uint8_t)((g_key_head + 1u) % KEY_QUEUE_SIZE);
     if (next == g_key_tail) return;
     g_key_queue[g_key_head] = c;
@@ -349,7 +350,7 @@ static void keyboard_irq(void) {
     }
     if (sc & 0x80u) return;
     char c = ps2_decode_make(sc);
-    if (c) keyboard_push(c);
+    if (c) osaura_keyboard_submit(c);
 }
 
 void osaura_interrupt_dispatch(uint64_t vector, uint64_t error_code) {
@@ -537,6 +538,7 @@ __attribute__((noreturn)) static void terminal_loop(void) {
     osaura_scheduler_start();
 
     for (;;) {
+        osaura_usb_keyboard_poll();
         char c = keyboard_pop();
         if (!c) {
             __asm__ volatile("hlt");
@@ -589,6 +591,9 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     wait_for_timer_irq();
     serial_text("BOOT: IRQ0 RECEIVED\n");
 
+    int usb_keyboard_ok = osaura_usb_keyboard_init();
+    serial_text(usb_keyboard_ok ? "BOOT: USB HID KEYBOARD READY\n" : "BOOT: USB HID KEYBOARD UNAVAILABLE\n");
+
     osaura_scheduler_init();
     serial_text("BOOT: SCHEDULER READY\n");
 
@@ -604,6 +609,7 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     write_text("PIC: REMAPPED 32-47\n");
     write_text("PIT IRQ0: ACTIVE\n");
     write_text("PS2 IRQ1: ACTIVE\n");
+    write_text(usb_keyboard_ok ? "USB HID KEYBOARD: ACTIVE\n" : "USB HID KEYBOARD: FALLBACK PS2\n");
     write_text(allocator_ok ? "PAGE ALLOCATOR: ACTIVE\n" : "PAGE ALLOCATOR: FAILED\n");
     write_text("SCHEDULER: READY\n");
     write_text("SERIAL COM1: ACTIVE\n\n");
