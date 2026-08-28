@@ -8,6 +8,13 @@ Profiles:
 The overlap is intentional: the running runtime can require that the incoming
 Book contains the currently active generation before allowing a quiescent
 cutover to the new generation.
+
+Hot-call ABI v4:
+  1xxxxxxx             = one-byte [bank:4][shadow:3] hot call
+  0xxxxxxx xxxxxxxx    = two-byte extended family/slot call
+
+Operands/selectors live in HOT/calls.bin metadata and prepared state; an MSB=1
+opcode never consumes a second byte.
 """
 
 from __future__ import annotations
@@ -69,7 +76,7 @@ def stable_manifest(sections: dict[str, bytes], profile: str) -> tuple[bytes, st
         "arch": "x86_64",
         "target": "osaura",
         "book": f"runtime-{profile}",
-        "compiler": "osaura-bootstrap/2",
+        "compiler": "osaura-bootstrap/3",
         "content_sha256": content_sha,
         "sections": rows,
     }
@@ -91,17 +98,26 @@ def bag_schema() -> bytes:
 
 
 def prepared_calls(specs: tuple[tuple[int, int], ...]) -> bytes:
+    """HOT/calls.bin v4 rows.
+
+    Row bytes:
+      generation, family, slot, hot_opcode, selector0, arity,
+      native_operation, flags
+
+    0xff hot_opcode means the row is available only through extended family/slot.
+    A hot opcode may alias the same family/slot row used by the extended form.
+    """
     rows = []
     for generation, _ in specs:
         rows.extend(
             (
                 (generation, 0, 1, 0x80, 0xFF, 0, 1, 0),
                 (generation, 0, 2, 0x81, 0xFF, 0, 2, 0),
-                (generation, 0, 3, 0xFF, 0, 1, 3, 0),
+                (generation, 0, 3, 0xC0, 0x00, 1, 3, 0),
             )
         )
     out = bytearray(b"JXCALL01")
-    out += struct.pack("<HH", 3, len(rows))
+    out += struct.pack("<HH", 4, len(rows))
     for row in rows:
         out += struct.pack("<BBBBBBBB", *row)
     return bytes(out)
@@ -166,6 +182,8 @@ def build(path: Path, profile: str) -> None:
     sections = {
         "BAG/schema.bin": bag_schema(),
         "CODE/applied-bus.bin": bytes((0x7F, 0x00, 0x01, 0x7F, 0x00, 0x02)),
+        # 0x80, 0x81 and 0xC0 are all complete one-byte hot calls under v4.
+        # 0x00,0x02 is one complete two-byte extended call.
         "CODE/prepared.bin": bytes((0x80, 0x81, 0x00, 0x02, 0xC0)),
         "HOT/calls.bin": prepared_calls(specs),
         "HOT/reactions.bin": hot_reactions(specs),
