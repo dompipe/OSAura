@@ -9,6 +9,8 @@ on:
       - 'host/windows/socket-winsock.h'
       - 'host/windows/display-win32.c'
       - 'host/windows/display-win32.h'
+      - 'host/windows/jx11-surface-win64.c'
+      - 'host/windows/jx11-surface-win64.h'
       - 'host/windows/vfs64.c'
       - 'host/windows/vfs64.h'
       - 'host/windows/runtime64.c'
@@ -30,6 +32,8 @@ on:
       - 'kernel/display.h'
       - 'runtime/jx/jx11-display.c'
       - 'runtime/jx/jx11-display.h'
+      - 'runtime/jx/jx11-surface.c'
+      - 'runtime/jx/jx11-surface.h'
       - '.github/workflows/wsjx-ci.yml'
   pull_request:
     paths:
@@ -39,6 +43,8 @@ on:
       - 'host/windows/socket-winsock.h'
       - 'host/windows/display-win32.c'
       - 'host/windows/display-win32.h'
+      - 'host/windows/jx11-surface-win64.c'
+      - 'host/windows/jx11-surface-win64.h'
       - 'host/windows/vfs64.c'
       - 'host/windows/vfs64.h'
       - 'host/windows/runtime64.c'
@@ -60,6 +66,8 @@ on:
       - 'kernel/display.h'
       - 'runtime/jx/jx11-display.c'
       - 'runtime/jx/jx11-display.h'
+      - 'runtime/jx/jx11-surface.c'
+      - 'runtime/jx/jx11-surface.h'
       - '.github/workflows/wsjx-ci.yml'
 
 jobs:
@@ -94,7 +102,7 @@ jobs:
 
       - name: Build wsjx64.exe
         shell: cmd
-        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c host\windows\vfs64.c kernel\socket.c kernel\display.c runtime\jx\jx11-display.c runtime64.obj /Iinclude /Ikernel /Iruntime\jx /link /MACHINE:X64 Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx64.exe
+        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c host\windows\jx11-surface-win64.c host\windows\vfs64.c kernel\socket.c kernel\display.c runtime\jx\jx11-display.c runtime\jx\jx11-surface.c runtime64.obj /Iinclude /Ikernel /Iruntime\jx /link /MACHINE:X64 Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx64.exe
 
       - name: Verify PE64 machine type
         shell: powershell
