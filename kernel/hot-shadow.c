@@ -36,7 +36,9 @@ int osaura_hot_dispatch_opcode(uint8_t opcode, void *request) {
     if ((opcode & OSAURA_HOT_BASE) == 0u) return -1;
     osaura_shadow_slot *slot = &g_hot.slot[opcode & 0x7fu];
     if (!slot->fn) return -2;
+#if defined(OSAURA_HOT_PROFILE) && OSAURA_HOT_PROFILE
     if (slot->hits != UINT32_MAX) ++slot->hits;
+#endif
     return slot->fn(slot->context, request);
 }
 
