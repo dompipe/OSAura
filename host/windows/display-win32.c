@@ -1,6 +1,7 @@
 #ifdef _WIN32
 
 #include "display-win32.h"
+#include "jx11-surface-win64.h"
 #include "../../kernel/display.h"
 
 #define WIN32_LEAN_AND_MEAN
@@ -16,6 +17,7 @@ static void *g_pixels;
 static uint32_t g_width;
 static uint32_t g_height;
 static uint8_t g_class_ready;
+static uint8_t g_jx11_surfaces_ready;
 
 static const char *g_class_name = "WSJXDisplayWindow";
 
@@ -130,9 +132,14 @@ int osaura_windows_display_backend_install(uint32_t width, uint32_t height) {
         osaura_windows_display_shutdown();
         return -3;
     }
-    if (create_window() != 0) {
+    if (osaura_windows_jx11_surface_install() != 0) {
         osaura_windows_display_shutdown();
         return -4;
+    }
+    g_jx11_surfaces_ready = 1u;
+    if (create_window() != 0) {
+        osaura_windows_display_shutdown();
+        return -5;
     }
     return 0;
 }
@@ -173,6 +180,10 @@ int osaura_windows_display_pump(void) {
 }
 
 void osaura_windows_display_shutdown(void) {
+    if (g_jx11_surfaces_ready) {
+        osaura_windows_jx11_surface_shutdown();
+        g_jx11_surfaces_ready = 0u;
+    }
     if (g_window) {
         DestroyWindow(g_window);
         g_window = 0;
