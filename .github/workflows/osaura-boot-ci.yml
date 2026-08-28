@@ -53,6 +53,13 @@ jobs:
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_bus_collects'
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_bag_checkpoints'
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_channel_deliveries'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_prepared_calls'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_hot_dispatches'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_reaction_runs'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_reaction_value'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_generation_swaps'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_active_generation'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_previous_generation'
           nm build/x86_64.o | grep -F 'osaura_arch_write_cr3'
           nm build/x86_64.o | grep -F 'osaura_isr_32'
           nm build/x86_64.o | grep -F 'osaura_isr_33'
@@ -130,12 +137,14 @@ jobs:
             exit 1
           fi
 
-          # Give the scheduler several complete round-robin quanta. The JX
-          # service announces only after the disk-loaded Book, Bag checkpoint,
-          # channel delivery and both applied bus entrypoints are all live.
+          # The runtime announces only after the compiler-authored Bag schema,
+          # all compact prepared-call tiers, O(1) hot routes, reactions, the
+          # generation 1->2 quiescent cutover, channels and both applied bus
+          # entrypoints have executed under real PIT preemption.
           jx_seen=0
-          for _ in $(seq 1 60); do
-            if grep -Fq 'JX CHANNEL SWITCH: ACTIVE' build/qemu.log && \
+          for _ in $(seq 1 80); do
+            if grep -Fq 'JX GENERATION 1->2: ACTIVE' build/qemu.log && \
+               grep -Fq 'JX PREPARED CALLS: ACTIVE' build/qemu.log && \
                grep -Fq 'JX BUS.COLLECT: ACTIVE' build/qemu.log; then
               jx_seen=1
               break
@@ -207,7 +216,7 @@ jobs:
 
           cat build/qemu.log
           if [ "$jx_seen" -ne 1 ] || [ "$help_seen" -ne 1 ] || [ "$vm_seen" -ne 1 ] || [ "$tasks_seen" -ne 1 ] || [ "$alloc_seen" -ne 1 ]; then
-            echo 'JX 64B/Bag/channel scheduler gate failed; last QEMU interrupt trace lines:'
+            echo 'JX generation/hot-register scheduler gate failed; last QEMU interrupt trace lines:'
             tail -n 200 build/qemu-debug.log || true
           fi
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then exit "$rc"; fi
@@ -226,8 +235,13 @@ jobs:
           grep -Fq 'PS2 IRQ1: ACTIVE' build/qemu.log
           grep -Fq 'JX 64B: VERIFIED' build/qemu.log
           grep -Fq 'JX 64B CODE/APPLIED-BUS: LOADED' build/qemu.log
+          grep -Fq 'JX BAG SCHEMA: LINKED' build/qemu.log
           grep -Fq 'JX BAG: ACTIVE' build/qemu.log
           grep -Fq 'JX BAG CHECKPOINT: ACTIVE' build/qemu.log
+          grep -Fq 'JX PREPARED CALLS: ACTIVE' build/qemu.log
+          grep -Fq 'JX HOT REGISTERS: ACTIVE' build/qemu.log
+          grep -Fq 'JX REACTIONS: ACTIVE' build/qemu.log
+          grep -Fq 'JX GENERATION 1->2: ACTIVE' build/qemu.log
           grep -Fq 'JX CHANNEL BUS: ACTIVE' build/qemu.log
           grep -Fq 'JX CHANNEL SWITCH: ACTIVE' build/qemu.log
           grep -Fq 'JX RUNTIME: ACTIVE' build/qemu.log
