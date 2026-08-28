@@ -1,4 +1,6 @@
 #include "hot-shadow.h"
+#include "storage.h"
+#include "ipc.h"
 #include "usb-hot.h"
 #include "wifi-hot.h"
 #include "clock-hot.h"
@@ -21,8 +23,11 @@ void osaura_hot_init(void) {
     }
     g_hot_initialized = 1u;
 
-    osaura_vfs_init();
+    /* State owners initialize before their hot banks are admitted. */
     osaura_security_init();
+    osaura_storage_init();
+    osaura_ipc_init();
+    osaura_vfs_init();
 
     (void)osaura_usb_hot_bind();
     (void)osaura_wifi_hot_bind();
