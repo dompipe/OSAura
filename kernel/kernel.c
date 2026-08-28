@@ -33,29 +33,8 @@
 #define TERMINAL_COLS_MAX 160u
 #define TERMINAL_ROWS_MAX 64u
 
-/* Bank 4: input 0xA0..0xA7. */
-enum {
-    INPUT_HOT_POLL = 0u,
-    INPUT_HOT_POP = 1u,
-    INPUT_HOT_PUSH = 2u,
-    INPUT_HOT_PS2 = 3u,
-    INPUT_HOT_USB = 4u,
-    INPUT_HOT_MODIFIERS = 5u,
-    INPUT_HOT_READY = 6u,
-    INPUT_HOT_WAKE = 7u
-};
-
-/* Bank 5: terminal 0xA8..0xAF. */
-enum {
-    TERMINAL_HOT_WRITE_CHAR = 0u,
-    TERMINAL_HOT_ERASE = 1u,
-    TERMINAL_HOT_NEWLINE = 2u,
-    TERMINAL_HOT_SWITCH = 3u,
-    TERMINAL_HOT_CLEAR = 4u,
-    TERMINAL_HOT_RENDER = 5u,
-    TERMINAL_HOT_PROMPT = 6u,
-    TERMINAL_HOT_SEED = 7u
-};
+enum { INPUT_HOT_POLL=0u, INPUT_HOT_POP=1u, INPUT_HOT_PUSH=2u, INPUT_HOT_PS2=3u, INPUT_HOT_USB=4u, INPUT_HOT_MODIFIERS=5u, INPUT_HOT_READY=6u, INPUT_HOT_WAKE=7u };
+enum { TERMINAL_HOT_WRITE_CHAR=0u, TERMINAL_HOT_ERASE=1u, TERMINAL_HOT_NEWLINE=2u, TERMINAL_HOT_SWITCH=3u, TERMINAL_HOT_CLEAR=4u, TERMINAL_HOT_RENDER=5u, TERMINAL_HOT_PROMPT=6u, TERMINAL_HOT_SEED=7u };
 
 extern void osaura_arch_load_gdt(void);
 extern void osaura_arch_load_idt(const void *base, uint16_t limit);
@@ -64,54 +43,19 @@ extern void osaura_arch_disable_interrupts(void);
 extern const uint8_t osaura_isr_anchor[];
 extern const int32_t osaura_isr_offsets[48];
 
-typedef struct __attribute__((packed)) {
-    uint16_t offset_low;
-    uint16_t selector;
-    uint8_t ist;
-    uint8_t type_attr;
-    uint16_t offset_mid;
-    uint32_t offset_high;
-    uint32_t zero;
-} idt_gate;
-
-typedef struct {
-    uint32_t type;
-    uint32_t pad;
-    uint64_t physical_start;
-    uint64_t virtual_start;
-    uint64_t number_of_pages;
-    uint64_t attribute;
-} efi_memory_descriptor_view;
-
-typedef struct {
-    char cells[TERMINAL_ROWS_MAX][TERMINAL_COLS_MAX];
-    char line[LINE_MAX];
-    uint32_t col;
-    uint32_t row;
-    uint32_t length;
-    uint8_t initialized;
-} terminal_session;
-
-typedef struct {
-    uint8_t usage;
-    uint8_t modifiers;
-    uint8_t pressed;
-    char character;
-} input_push_request;
+typedef struct __attribute__((packed)) { uint16_t offset_low; uint16_t selector; uint8_t ist; uint8_t type_attr; uint16_t offset_mid; uint32_t offset_high; uint32_t zero; } idt_gate;
+typedef struct { uint32_t type; uint32_t pad; uint64_t physical_start; uint64_t virtual_start; uint64_t number_of_pages; uint64_t attribute; } efi_memory_descriptor_view;
+typedef struct { char cells[TERMINAL_ROWS_MAX][TERMINAL_COLS_MAX]; char line[LINE_MAX]; uint32_t col; uint32_t row; uint32_t length; uint8_t initialized; } terminal_session;
+typedef struct { uint8_t usage; uint8_t modifiers; uint8_t pressed; char character; } input_push_request;
 
 static osaura_boot_info g_boot;
 static idt_gate g_idt[IDT_ENTRIES];
 static uint8_t g_serial_ready;
 volatile uint64_t osaura_ticks;
 static volatile osaura_key_event g_key_queue[KEY_QUEUE_SIZE];
-static volatile uint8_t g_key_head;
-static volatile uint8_t g_key_tail;
-static uint8_t g_ps2_extended;
-static uint8_t g_ps2_modifiers;
-static uint64_t g_free_pages;
-static uint64_t g_allocated_pages;
-static uint64_t g_alloc_desc_index;
-static uint64_t g_alloc_page_index;
+static volatile uint8_t g_key_head, g_key_tail;
+static uint8_t g_ps2_extended, g_ps2_modifiers;
+static uint64_t g_free_pages, g_allocated_pages, g_alloc_desc_index, g_alloc_page_index;
 static terminal_session g_terminals[TERMINAL_COUNT];
 static uint8_t g_active_terminal;
 
@@ -133,797 +77,86 @@ static const uint8_t glyphs[43][7] = {
     {0,0,0,0,0,12,12},{0,0,4,0,4,0,0},{0,2,4,8,16,0,0},{0,4,2,31,2,4,0}
 };
 
-static inline uint8_t in8(uint16_t port) {
-    uint8_t value;
-    __asm__ volatile("inb %1, %0" : "=a"(value) : "Nd"(port));
-    return value;
-}
-
-static inline void out8(uint16_t port, uint8_t value) {
-    __asm__ volatile("outb %0, %1" : : "a"(value) : "Nd"(port));
-}
-
-static inline void io_wait(void) { out8(0x80u, 0u); }
-
-static void zero_bytes(void *ptr, uint64_t bytes) {
-    uint8_t *p = (uint8_t *)ptr;
-    while (bytes--) *p++ = 0u;
-}
-
-static void serial_init(void) {
-    out8(COM1 + 1u, 0x00u);
-    out8(COM1 + 3u, 0x80u);
-    out8(COM1 + 0u, 0x03u);
-    out8(COM1 + 1u, 0x00u);
-    out8(COM1 + 3u, 0x03u);
-    out8(COM1 + 2u, 0xC7u);
-    out8(COM1 + 4u, 0x0Bu);
-    g_serial_ready = 1u;
-}
-
-static void serial_char(char c) {
-    if (!g_serial_ready) return;
-    if (c == '\n') serial_char('\r');
-    while (!(in8(COM1 + 5u) & 0x20u)) __asm__ volatile("pause");
-    out8(COM1, (uint8_t)c);
-}
-
-static void serial_text(const char *s) { while (*s) serial_char(*s++); }
-
-static void serial_u64(uint64_t value) {
-    char digits[21];
-    uint32_t count = 0;
-    if (value == 0) { serial_char('0'); return; }
-    while (value && count < sizeof digits) {
-        digits[count++] = (char)('0' + (value % 10u));
-        value /= 10u;
-    }
-    while (count) serial_char(digits[--count]);
-}
-
-static int glyph_index(char c) {
-    if (c == ' ') return 0;
-    if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
-    if (c >= 'A' && c <= 'Z') return 1 + (c - 'A');
-    if (c >= '0' && c <= '9') return 27 + (c - '0');
-    if (c == ':') return 37;
-    if (c == '-') return 38;
-    if (c == '.') return 39;
-    if (c == '!') return 40;
-    if (c == '/') return 41;
-    if (c == '>') return 42;
-    return 0;
-}
-
-static uint32_t pack_rgb(uint8_t r, uint8_t g, uint8_t b) {
-    if (g_boot.pixel_format == OSAURA_PIXEL_RGBX8)
-        return (uint32_t)r | ((uint32_t)g << 8) | ((uint32_t)b << 16);
-    return (uint32_t)b | ((uint32_t)g << 8) | ((uint32_t)r << 16);
-}
-
-static void put_pixel(uint32_t x, uint32_t y, uint32_t color) {
-    if (x >= g_boot.width || y >= g_boot.height) return;
-    volatile uint32_t *fb = (volatile uint32_t *)(uintptr_t)g_boot.framebuffer_base;
-    fb[(uint64_t)y * g_boot.pixels_per_scanline + x] = color;
-}
-
-static void framebuffer_clear(void) {
-    uint32_t bg = pack_rgb(0, 0, 0);
-    for (uint32_t y = 0; y < g_boot.height; ++y)
-        for (uint32_t x = 0; x < g_boot.width; ++x)
-            put_pixel(x, y, bg);
-}
-
-static uint32_t terminal_cols(void) {
-    uint32_t cols = g_boot.width > MARGIN ? (g_boot.width - MARGIN) / CELL_W : 1u;
-    return cols > TERMINAL_COLS_MAX ? TERMINAL_COLS_MAX : (cols ? cols : 1u);
-}
-
-static uint32_t terminal_rows(void) {
-    uint32_t rows = g_boot.height > MARGIN ? (g_boot.height - MARGIN) / CELL_H : 1u;
-    return rows > TERMINAL_ROWS_MAX ? TERMINAL_ROWS_MAX : (rows ? rows : 1u);
-}
-
-static void render_glyph(uint32_t col, uint32_t row, char c) {
-    int gi = glyph_index(c);
-    uint32_t fg = pack_rgb(235, 235, 235);
-    uint32_t ox = col * CELL_W + MARGIN;
-    uint32_t oy = row * CELL_H + MARGIN;
-    for (uint32_t y = 0; y < GLYPH_H; ++y) {
-        uint8_t bits = glyphs[gi][y];
-        for (uint32_t x = 0; x < GLYPH_W; ++x) {
-            if (!(bits & (1u << (GLYPH_W - 1u - x)))) continue;
-            for (uint32_t sy = 0; sy < SCALE; ++sy)
-                for (uint32_t sx = 0; sx < SCALE; ++sx)
-                    put_pixel(ox + x * SCALE + sx, oy + y * SCALE + sy, fg);
-        }
-    }
-}
-
-static terminal_session *active_terminal(void) { return &g_terminals[g_active_terminal]; }
-
-static void clear_screen(void) {
-    terminal_session *term = active_terminal();
-    framebuffer_clear();
-    zero_bytes(term->cells, sizeof term->cells);
-    term->col = 0u;
-    term->row = 0u;
-}
-
-static void terminal_newline(void) {
-    terminal_session *term = active_terminal();
-    term->col = 0u;
-    ++term->row;
-    if (term->row >= terminal_rows()) clear_screen();
-}
-
-static void draw_char(char c) {
-    terminal_session *term = active_terminal();
-    serial_char(c);
-    if (c == '\n') { terminal_newline(); return; }
-    if (term->row < TERMINAL_ROWS_MAX && term->col < TERMINAL_COLS_MAX)
-        term->cells[term->row][term->col] = c;
-    render_glyph(term->col, term->row, c);
-    ++term->col;
-    if (term->col >= terminal_cols()) terminal_newline();
-}
-
-static void erase_char(void) {
-    terminal_session *term = active_terminal();
-    if (term->col == 0u) return;
-    --term->col;
-    term->cells[term->row][term->col] = 0;
-    uint32_t bg = pack_rgb(0, 0, 0);
-    uint32_t ox = term->col * CELL_W + MARGIN;
-    uint32_t oy = term->row * CELL_H + MARGIN;
-    for (uint32_t y = 0; y < CELL_H; ++y)
-        for (uint32_t x = 0; x < CELL_W; ++x)
-            put_pixel(ox + x, oy + y, bg);
-    serial_text("\b \b");
-}
-
-static void write_text(const char *s) { while (*s) draw_char(*s++); }
-
-static void write_u64(uint64_t value) {
-    char digits[21];
-    uint32_t count = 0;
-    if (value == 0) { draw_char('0'); return; }
-    while (value && count < sizeof digits) {
-        digits[count++] = (char)('0' + (value % 10u));
-        value /= 10u;
-    }
-    while (count) draw_char(digits[--count]);
-}
-
-static int text_equal(const char *a, const char *b) {
-    while (*a && *b) {
-        char ca = *a++;
-        char cb = *b++;
-        if (ca >= 'a' && ca <= 'z') ca = (char)(ca - 'a' + 'A');
-        if (cb >= 'a' && cb <= 'z') cb = (char)(cb - 'a' + 'A');
-        if (ca != cb) return 0;
-    }
-    return *a == 0 && *b == 0;
-}
-
-static void terminal_render(uint8_t id) {
-    if (id >= TERMINAL_COUNT) return;
-    framebuffer_clear();
-    terminal_session *term = &g_terminals[id];
-    uint32_t rows = terminal_rows();
-    uint32_t cols = terminal_cols();
-    for (uint32_t row = 0; row < rows; ++row)
-        for (uint32_t col = 0; col < cols; ++col)
-            if (term->cells[row][col]) render_glyph(col, row, term->cells[row][col]);
-}
-
-static void print_prompt(void) { write_text("OSAURA> "); }
-
-static void terminal_seed(uint8_t id) {
-    terminal_session *term = &g_terminals[id];
-    if (term->initialized) return;
-    term->initialized = 1u;
-    if (id == g_active_terminal) {
-        write_text("OSAURA TERMINAL ");
-        write_u64((uint64_t)id + 1u);
-        write_text("\n");
-        print_prompt();
-    }
-}
-
-static void terminal_switch_next(void) {
-    g_active_terminal = (uint8_t)((g_active_terminal + 1u) % TERMINAL_COUNT);
-    terminal_render(g_active_terminal);
-    if (!active_terminal()->initialized) terminal_seed(g_active_terminal);
-    serial_text("\nALT-TAB TERMINAL ");
-    serial_u64((uint64_t)g_active_terminal + 1u);
-    serial_text("\n");
-}
-
-static int hot_terminal_write_char(void *context, void *request) {
-    (void)context;
-    if (!request) return -1;
-    draw_char(*(const char *)request);
-    return 1;
-}
-
-static int hot_terminal_erase(void *context, void *request) {
-    (void)context; (void)request;
-    erase_char();
-    return 1;
-}
-
-static int hot_terminal_newline(void *context, void *request) {
-    (void)context; (void)request;
-    draw_char('\n');
-    return 1;
-}
-
-static int hot_terminal_switch(void *context, void *request) {
-    (void)context; (void)request;
-    terminal_switch_next();
-    return 1;
-}
-
-static int hot_terminal_clear(void *context, void *request) {
-    (void)context; (void)request;
-    clear_screen();
-    return 1;
-}
-
-static int hot_terminal_render(void *context, void *request) {
-    (void)context;
-    if (!request) return -1;
-    terminal_render(*(const uint8_t *)request);
-    return 1;
-}
-
-static int hot_terminal_prompt(void *context, void *request) {
-    (void)context; (void)request;
-    print_prompt();
-    return 1;
-}
-
-static int hot_terminal_seed(void *context, void *request) {
-    (void)context;
-    if (!request) return -1;
-    terminal_seed(*(const uint8_t *)request);
-    return 1;
-}
-
-static void idt_set_gate(uint8_t vector, void *handler) {
-    uint64_t address = (uint64_t)(uintptr_t)handler;
-    idt_gate *gate = &g_idt[vector];
-    gate->offset_low = (uint16_t)address;
-    gate->selector = 0x08u;
-    gate->ist = 0u;
-    gate->type_attr = 0x8Eu;
-    gate->offset_mid = (uint16_t)(address >> 16);
-    gate->offset_high = (uint32_t)(address >> 32);
-    gate->zero = 0u;
-}
-
-static void idt_init(void) {
-    for (uint32_t i = 0; i < IDT_ENTRIES; ++i) {
-        g_idt[i].offset_low = 0;
-        g_idt[i].selector = 0;
-        g_idt[i].ist = 0;
-        g_idt[i].type_attr = 0;
-        g_idt[i].offset_mid = 0;
-        g_idt[i].offset_high = 0;
-        g_idt[i].zero = 0;
-    }
-    uintptr_t anchor = (uintptr_t)osaura_isr_anchor;
-    for (uint32_t i = 0; i < 48u; ++i) {
-        intptr_t offset = (intptr_t)osaura_isr_offsets[i];
-        idt_set_gate((uint8_t)i, (void *)(anchor + offset));
-    }
-    osaura_arch_load_idt(g_idt, (uint16_t)(sizeof g_idt - 1u));
-}
-
-static void pic_remap(void) {
-    uint8_t master_mask = in8(PIC1_DATA);
-    uint8_t slave_mask = in8(PIC2_DATA);
-    out8(PIC1_CMD, 0x11u); io_wait();
-    out8(PIC2_CMD, 0x11u); io_wait();
-    out8(PIC1_DATA, IRQ_BASE); io_wait();
-    out8(PIC2_DATA, IRQ_BASE + 8u); io_wait();
-    out8(PIC1_DATA, 0x04u); io_wait();
-    out8(PIC2_DATA, 0x02u); io_wait();
-    out8(PIC1_DATA, 0x01u); io_wait();
-    out8(PIC2_DATA, 0x01u); io_wait();
-    (void)master_mask;
-    (void)slave_mask;
-    out8(PIC1_DATA, 0xFCu);
-    out8(PIC2_DATA, 0xFFu);
-}
-
-static void pic_eoi(uint8_t irq) {
-    if (irq >= 8u) out8(PIC2_CMD, 0x20u);
-    out8(PIC1_CMD, 0x20u);
-}
-
-static void pit_init(void) {
-    uint16_t divisor = (uint16_t)(PIT_INPUT_HZ / PIT_HZ);
-    out8(PIT_COMMAND, 0x36u);
-    out8(PIT_CHANNEL0, (uint8_t)(divisor & 0xFFu));
-    out8(PIT_CHANNEL0, (uint8_t)(divisor >> 8));
-}
-
-static char ps2_decode_make(uint8_t sc) {
-    if (sc >= 0x02u && sc <= 0x0Au) return (char)('1' + (sc - 0x02u));
-    if (sc == 0x0Bu) return '0';
-    if (sc == 0x0Cu) return '-';
-    if (sc == 0x0Eu) return '\b';
-    if (sc == 0x0Fu) return '\t';
-    if (sc == 0x1Cu) return '\n';
-    if (sc == 0x39u) return ' ';
-    switch (sc) {
-        case 0x10: return 'Q'; case 0x11: return 'W'; case 0x12: return 'E';
-        case 0x13: return 'R'; case 0x14: return 'T'; case 0x15: return 'Y';
-        case 0x16: return 'U'; case 0x17: return 'I'; case 0x18: return 'O';
-        case 0x19: return 'P'; case 0x1E: return 'A'; case 0x1F: return 'S';
-        case 0x20: return 'D'; case 0x21: return 'F'; case 0x22: return 'G';
-        case 0x23: return 'H'; case 0x24: return 'J'; case 0x25: return 'K';
-        case 0x26: return 'L'; case 0x2C: return 'Z'; case 0x2D: return 'X';
-        case 0x2E: return 'C'; case 0x2F: return 'V'; case 0x30: return 'B';
-        case 0x31: return 'N'; case 0x32: return 'M'; default: return 0;
-    }
-}
-
-static uint8_t ps2_usage(uint8_t sc) {
-    if (sc >= 0x02u && sc <= 0x0Au) return (uint8_t)(0x1eu + sc - 0x02u);
-    if (sc == 0x0Bu) return 0x27u;
-    if (sc == 0x0Eu) return OSAURA_KEY_BACKSPACE;
-    if (sc == 0x0Fu) return OSAURA_KEY_TAB;
-    if (sc == 0x1Cu) return OSAURA_KEY_ENTER;
-    if (sc == 0x39u) return 0x2cu;
-    switch (sc) {
-        case 0x10: return 0x14; case 0x11: return 0x1a; case 0x12: return 0x08;
-        case 0x13: return 0x15; case 0x14: return 0x17; case 0x15: return 0x1c;
-        case 0x16: return 0x18; case 0x17: return 0x0c; case 0x18: return 0x12;
-        case 0x19: return 0x13; case 0x1E: return 0x04; case 0x1F: return 0x16;
-        case 0x20: return 0x07; case 0x21: return 0x09; case 0x22: return 0x0a;
-        case 0x23: return 0x0b; case 0x24: return 0x0d; case 0x25: return 0x0e;
-        case 0x26: return 0x0f; case 0x2C: return 0x1d; case 0x2D: return 0x1b;
-        case 0x2E: return 0x06; case 0x2F: return 0x19; case 0x30: return 0x05;
-        case 0x31: return 0x11; case 0x32: return 0x10; default: return 0;
-    }
-}
-
-static void keyboard_push_event(uint8_t usage, uint8_t modifiers, uint8_t pressed, char c) {
-    uint8_t next = (uint8_t)((g_key_head + 1u) % KEY_QUEUE_SIZE);
-    if (next == g_key_tail) return;
-    g_key_queue[g_key_head].usage = usage;
-    g_key_queue[g_key_head].modifiers = modifiers;
-    g_key_queue[g_key_head].pressed = pressed;
-    g_key_queue[g_key_head].character = c;
-    g_key_head = next;
-}
-
-static int keyboard_pop_event(osaura_key_event *event) {
-    if (!event || g_key_tail == g_key_head) return 0;
-    event->usage = g_key_queue[g_key_tail].usage;
-    event->modifiers = g_key_queue[g_key_tail].modifiers;
-    event->pressed = g_key_queue[g_key_tail].pressed;
-    event->character = g_key_queue[g_key_tail].character;
-    g_key_tail = (uint8_t)((g_key_tail + 1u) % KEY_QUEUE_SIZE);
-    return 1;
-}
-
-static void keyboard_irq(void) {
-    uint8_t raw = in8(0x60u);
-    if (raw == 0xE0u) { g_ps2_extended = 1u; return; }
-    uint8_t released = (raw & 0x80u) != 0u;
-    uint8_t sc = raw & 0x7fu;
-    if (g_ps2_extended) {
-        g_ps2_extended = 0u;
-        if (sc == 0x38u) {
-            if (released) g_ps2_modifiers &= (uint8_t)~OSAURA_KEY_MOD_ALT;
-            else g_ps2_modifiers |= OSAURA_KEY_MOD_ALT;
-        } else if (sc == 0x1du) {
-            if (released) g_ps2_modifiers &= (uint8_t)~OSAURA_KEY_MOD_CTRL;
-            else g_ps2_modifiers |= OSAURA_KEY_MOD_CTRL;
-        }
-        return;
-    }
-    if (sc == 0x2Au || sc == 0x36u) {
-        if (released) g_ps2_modifiers &= (uint8_t)~OSAURA_KEY_MOD_SHIFT;
-        else g_ps2_modifiers |= OSAURA_KEY_MOD_SHIFT;
-        return;
-    }
-    if (sc == 0x1Du) {
-        if (released) g_ps2_modifiers &= (uint8_t)~OSAURA_KEY_MOD_CTRL;
-        else g_ps2_modifiers |= OSAURA_KEY_MOD_CTRL;
-        return;
-    }
-    if (sc == 0x38u) {
-        if (released) g_ps2_modifiers &= (uint8_t)~OSAURA_KEY_MOD_ALT;
-        else g_ps2_modifiers |= OSAURA_KEY_MOD_ALT;
-        return;
-    }
-    uint8_t usage = ps2_usage(sc);
-    char c = released ? 0 : ps2_decode_make(sc);
-    if (usage || c) keyboard_push_event(usage, g_ps2_modifiers, released ? 0u : 1u, c);
-}
-
-static int input_pop_event_raw(osaura_key_event *event) {
-    osaura_usb_poll();
-    if (osaura_usb_keyboard_ready()) return osaura_usb_keyboard_event_pop(event);
-    return keyboard_pop_event(event);
-}
-
-static int hot_input_poll(void *context, void *request) {
-    (void)context; (void)request;
-    osaura_usb_poll();
-    return 1;
-}
-
-static int hot_input_pop(void *context, void *request) {
-    (void)context;
-    return input_pop_event_raw((osaura_key_event *)request);
-}
-
-static int hot_input_push(void *context, void *request) {
-    (void)context;
-    if (!request) return -1;
-    const input_push_request *r = (const input_push_request *)request;
-    keyboard_push_event(r->usage, r->modifiers, r->pressed, r->character);
-    return 1;
-}
-
-static int hot_input_ps2(void *context, void *request) {
-    (void)context; (void)request;
-    keyboard_irq();
-    return 1;
-}
-
-static int hot_input_usb(void *context, void *request) {
-    (void)context;
-    return osaura_usb_keyboard_event_pop((osaura_key_event *)request);
-}
-
-static int hot_input_modifiers(void *context, void *request) {
-    (void)context;
-    if (!request) return -1;
-    *(uint8_t *)request = g_ps2_modifiers;
-    return 1;
-}
-
-static int hot_input_ready(void *context, void *request) {
-    (void)context; (void)request;
-    return osaura_usb_keyboard_ready() || g_key_tail != g_key_head;
-}
-
-static int hot_input_wake(void *context, void *request) {
-    (void)context; (void)request;
-    return 1;
-}
-
-static void io_hot_bind(void) {
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_POLL, hot_input_poll, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_POP, hot_input_pop, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_PUSH, hot_input_push, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_PS2, hot_input_ps2, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_USB, hot_input_usb, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_MODIFIERS, hot_input_modifiers, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_READY, hot_input_ready, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT, INPUT_HOT_WAKE, hot_input_wake, 0);
-
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_WRITE_CHAR, hot_terminal_write_char, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_ERASE, hot_terminal_erase, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_NEWLINE, hot_terminal_newline, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_SWITCH, hot_terminal_switch, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_CLEAR, hot_terminal_clear, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_RENDER, hot_terminal_render, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_PROMPT, hot_terminal_prompt, 0);
-    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_SEED, hot_terminal_seed, 0);
-}
-
-static int input_pop_event(osaura_key_event *event) {
-    return osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_INPUT, INPUT_HOT_POP), event);
-}
-
-static void terminal_hot_char(char c) {
-    (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_WRITE_CHAR), &c);
-}
-
-static void terminal_hot_erase(void) {
-    (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_ERASE), 0);
-}
-
-static void terminal_hot_switch(void) {
-    (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_SWITCH), 0);
-}
-
-void osaura_interrupt_dispatch(uint64_t vector, uint64_t error_code) {
-    if (vector < 32u) {
-        osaura_arch_disable_interrupts();
-        serial_text("\nOSAURA EXCEPTION VECTOR ");
-        serial_u64(vector);
-        serial_text(" ERROR ");
-        serial_u64(error_code);
-        serial_text("\nCPU HALTED\n");
-        for (;;) __asm__ volatile("hlt");
-    }
-    if (vector >= IRQ_BASE && vector < IRQ_BASE + 16u) {
-        uint8_t irq = (uint8_t)(vector - IRQ_BASE);
-        if (irq == IRQ_TIMER) ++osaura_ticks;
-        else if (irq == IRQ_KEYBOARD)
-            (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_INPUT, INPUT_HOT_PS2), 0);
-        pic_eoi(irq);
-    }
-}
-
-static const efi_memory_descriptor_view *memory_descriptor(uint64_t index) {
-    if (!g_boot.memory_descriptor_size) return 0;
-    uint64_t count = g_boot.memory_map_size / g_boot.memory_descriptor_size;
-    if (index >= count) return 0;
-    const uint8_t *base = (const uint8_t *)(uintptr_t)g_boot.memory_map;
-    return (const efi_memory_descriptor_view *)(const void *)(base + index * g_boot.memory_descriptor_size);
-}
-
-static uint64_t pages_below_minimum(const efi_memory_descriptor_view *desc) {
-    if (desc->physical_start >= MIN_ALLOC_PHYS) return 0;
-    uint64_t bytes = MIN_ALLOC_PHYS - desc->physical_start;
-    uint64_t pages = (bytes + PAGE_SIZE - 1u) / PAGE_SIZE;
-    return pages > desc->number_of_pages ? desc->number_of_pages : pages;
-}
-
-static uint64_t descriptor_mapped_pages(const efi_memory_descriptor_view *desc) {
-    if (!desc || desc->physical_start >= OSAURA_VM_DIRECT_LIMIT) return 0;
-    uint64_t mapped = (OSAURA_VM_DIRECT_LIMIT - desc->physical_start) / PAGE_SIZE;
-    return mapped < desc->number_of_pages ? mapped : desc->number_of_pages;
-}
-
-static void page_allocator_init(void) {
-    g_free_pages = 0;
-    g_allocated_pages = 0;
-    g_alloc_desc_index = 0;
-    g_alloc_page_index = 0;
-    if (g_boot.memory_descriptor_size < sizeof(efi_memory_descriptor_view)) return;
-    uint64_t count = g_boot.memory_map_size / g_boot.memory_descriptor_size;
-    for (uint64_t i = 0; i < count; ++i) {
-        const efi_memory_descriptor_view *desc = memory_descriptor(i);
-        if (!desc || desc->type != EFI_CONVENTIONAL_MEMORY) continue;
-        uint64_t usable = descriptor_mapped_pages(desc);
-        uint64_t skip = pages_below_minimum(desc);
-        if (usable > skip) g_free_pages += usable - skip;
-    }
-}
-
-static void *page_alloc(void) {
-    uint64_t count = g_boot.memory_descriptor_size ?
-        g_boot.memory_map_size / g_boot.memory_descriptor_size : 0;
-    while (g_alloc_desc_index < count) {
-        const efi_memory_descriptor_view *desc = memory_descriptor(g_alloc_desc_index);
-        if (!desc || desc->type != EFI_CONVENTIONAL_MEMORY) {
-            ++g_alloc_desc_index;
-            g_alloc_page_index = 0;
-            continue;
-        }
-        uint64_t usable = descriptor_mapped_pages(desc);
-        uint64_t skip = pages_below_minimum(desc);
-        if (g_alloc_page_index < skip) g_alloc_page_index = skip;
-        if (g_alloc_page_index < usable) {
-            uint64_t address = desc->physical_start + g_alloc_page_index * PAGE_SIZE;
-            ++g_alloc_page_index;
-            if (g_free_pages) --g_free_pages;
-            ++g_allocated_pages;
-            return (void *)(uintptr_t)address;
-        }
-        ++g_alloc_desc_index;
-        g_alloc_page_index = 0;
-    }
-    return 0;
-}
-
-static int page_allocator_self_test(void) {
-    uintptr_t frame = (uintptr_t)page_alloc();
-    return frame >= MIN_ALLOC_PHYS && frame < OSAURA_VM_DIRECT_LIMIT &&
-           (frame & (PAGE_SIZE - 1u)) == 0u;
-}
-
-static void interrupts_init(void) {
-    osaura_arch_disable_interrupts();
-    serial_text("BOOT: GDT\n");
-    osaura_arch_load_gdt();
-    serial_text("BOOT: IDT\n");
-    idt_init();
-    serial_text("BOOT: PIC\n");
-    pic_remap();
-    serial_text("BOOT: PIT\n");
-    pit_init();
-    serial_text("BOOT: STI\n");
-    osaura_arch_enable_interrupts();
-}
-
-static void wait_for_timer_irq(void) {
-    uint64_t start = osaura_ticks;
-    while (osaura_ticks - start < 2u) __asm__ volatile("hlt");
-}
-
-static void print_tasks(void) {
-    uint32_t count = osaura_scheduler_task_count();
-    write_text("TASKS: ");
-    write_u64(count);
-    write_text(" CURRENT: ");
-    write_u64(osaura_scheduler_current_task());
-    write_text("\n");
-    for (uint32_t id = 0; id < count; ++id) {
-        write_text(osaura_scheduler_task_name(id));
-        write_text(" TICKS: ");
-        write_u64(osaura_scheduler_task_ticks(id));
-        write_text(" SWITCHES: ");
-        write_u64(osaura_scheduler_task_switches(id));
-        write_text("\n");
-    }
-}
-
-static void print_terminals(void) {
-    write_text("TERMINALS: ");
-    write_u64(TERMINAL_COUNT);
-    write_text(" ACTIVE: ");
-    write_u64((uint64_t)g_active_terminal + 1u);
-    write_text(" ALT-TAB: ACTIVE\n");
-}
-
-static void run_command(const char *line) {
-    if (!line[0]) return;
-    if (text_equal(line, "HELP")) {
-        write_text("HELP ABOUT MEM VM TASKS TICKS ALLOC CLEAR HALT TERMINALS USB\n");
-        write_text("NET IP ROUTE ARP PING DNS RESOLVE NETSTAT CURL WGET FETCH\n");
-    } else if (text_equal(line, "ABOUT")) {
-        write_text("OSAURA NATIVE X86-64 KERNEL\n");
-        write_text("VM INTERRUPTS TASKS USB VIRTUAL TERMINALS AND NETWORK RECOVERY OWNED\n");
-    } else if (text_equal(line, "MEM")) {
-        write_text("MEMORY MAP BYTES: ");
-        write_u64(g_boot.memory_map_size);
-        write_text("\nDESCRIPTORS: ");
-        write_u64(g_boot.memory_descriptor_size ? g_boot.memory_map_size / g_boot.memory_descriptor_size : 0);
-        write_text("\nFREE PAGES: ");
-        write_u64(g_free_pages);
-        write_text("\nALLOCATED PAGES: ");
-        write_u64(g_allocated_pages);
-        write_text("\n");
-    } else if (text_equal(line, "VM")) {
-        write_text("OWNED CR3: ");
-        write_u64(osaura_vm_cr3());
-        write_text("\nDIRECT MAP GIB: ");
-        write_u64(osaura_vm_direct_limit() >> 30);
-        write_text("\nPAGE SIZE MIB: 2\n");
-    } else if (text_equal(line, "TASKS")) {
-        print_tasks();
-    } else if (text_equal(line, "TICKS")) {
-        write_text("PIT TICKS: ");
-        write_u64(osaura_ticks);
-        write_text("\n");
-    } else if (text_equal(line, "ALLOC")) {
-        void *page = page_alloc();
-        write_text(page ? "PHYSICAL PAGE FRAME ALLOCATED\n" : "OUT OF PAGE FRAMES\n");
-    } else if (text_equal(line, "TERMINALS")) {
-        print_terminals();
-    } else if (text_equal(line, "USB")) {
-        write_text(osaura_usb_xhci_present() ? "USB XHCI: ACTIVE\n" : "USB XHCI: NOT FOUND\n");
-        write_text(osaura_usb_keyboard_ready() ? "USB HID KEYBOARD: ACTIVE\n" : "USB HID KEYBOARD: NOT FOUND\n");
-    } else if (text_equal(line, "CLEAR")) {
-        clear_screen();
-        serial_text("\nSCREEN CLEARED\n");
-    } else if (text_equal(line, "HALT")) {
-        write_text("CPU HALTED\n");
-        osaura_arch_disable_interrupts();
-        for (;;) __asm__ volatile("hlt");
-    } else if (osaura_net_command(line, write_text)) {
-        return;
-    } else {
-        write_text("UNKNOWN COMMAND\n");
-    }
-}
-
-__attribute__((noreturn)) static void terminal_loop(void) {
-    uint8_t terminal_zero = 0u;
-    (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_SEED), &terminal_zero);
-    osaura_scheduler_start();
-    for (;;) {
-        osaura_key_event event;
-        if (input_pop_event(&event) <= 0) {
-            __asm__ volatile("hlt");
-            continue;
-        }
-        if (event.pressed && event.usage == OSAURA_KEY_TAB && (event.modifiers & OSAURA_KEY_MOD_ALT)) {
-            terminal_hot_switch();
-            continue;
-        }
-        if (!event.pressed) continue;
-        char c = event.character;
-        if (!c || c == '\t') continue;
-        terminal_session *term = active_terminal();
-        if (c == '\b') {
-            if (term->length) { --term->length; terminal_hot_erase(); }
-            continue;
-        }
-        if (c == '\n') {
-            term->line[term->length] = 0;
-            terminal_hot_char('\n');
-            run_command(term->line);
-            term->length = 0u;
-            (void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL, TERMINAL_HOT_PROMPT), 0);
-            continue;
-        }
-        if (term->length + 1u < LINE_MAX) {
-            term->line[term->length++] = c;
-            terminal_hot_char(c);
-        }
-    }
-}
-
-__attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) {
-    serial_init();
-    if (!boot || boot->version != OSAURA_BOOT_INFO_VERSION || !boot->framebuffer_base) {
-        serial_text("OSAURA KERNEL BOOT INFO ERROR\n");
-        osaura_arch_disable_interrupts();
-        for (;;) __asm__ volatile("hlt");
-    }
-
-    g_boot = *boot;
-    zero_bytes(g_terminals, sizeof g_terminals);
-    g_active_terminal = 0u;
-    serial_text("BOOT: INFO OK\n");
-    page_allocator_init();
-    serial_text("BOOT: FRAME MAP INDEXED\n");
-    int allocator_ok = page_allocator_self_test();
-
-    serial_text("BOOT: VM BUILD\n");
-    if (!osaura_vm_init(&g_boot)) {
-        serial_text("BOOT: VM FAILED\n");
-        osaura_arch_disable_interrupts();
-        for (;;) __asm__ volatile("hlt");
-    }
-    serial_text("BOOT: CR3 OWNED\n");
-    framebuffer_clear();
-
-    serial_text("BOOT: USB XHCI\n");
-    int usb_ok = osaura_usb_init();
-    serial_text(usb_ok ? "BOOT: USB XHCI READY\n" : "BOOT: USB XHCI FALLBACK\n");
-
-    serial_text("BOOT: NETWORK DISCOVERY\n");
-    osaura_net_init();
-    serial_text("BOOT: NETWORK CORE READY\n");
-
-    /* Bind input/terminal after earlier subsystems so we never reset the global map. */
-    io_hot_bind();
-    serial_text("BOOT: INPUT TERMINAL HOT SHADOWS READY\n");
-
-    interrupts_init();
-    serial_text("BOOT: WAIT IRQ0\n");
-    wait_for_timer_irq();
-    serial_text("BOOT: IRQ0 RECEIVED\n");
-
-    osaura_scheduler_init();
-    serial_text("BOOT: SCHEDULER READY\n");
-
-    write_text("OSAURA KERNEL 0.5-DEV\n");
-    write_text("X86-64 NATIVE MODE\n");
-    write_text("UEFI BOOT SERVICES: EXITED\n");
-    write_text("FRAMEBUFFER: OWNED\n");
-    write_text("MEMORY MAP: CAPTURED\n");
-    write_text("PAGE TABLES: OWNED\n");
-    write_text("DIRECT MAP: 64 GIB\n");
-    write_text("GDT: ACTIVE\n");
-    write_text("IDT: ACTIVE\n");
-    write_text("PIC: REMAPPED 32-47\n");
-    write_text("PIT IRQ0: ACTIVE\n");
-    write_text("PS2 IRQ1: HOT 0xA3\n");
-    write_text(usb_ok ? "USB XHCI: ACTIVE\n" : "USB XHCI: FALLBACK\n");
-    write_text(osaura_usb_keyboard_ready() ? "USB HID KEYBOARD: ACTIVE\n" : "USB HID KEYBOARD: NOT FOUND\n");
-    write_text("INPUT HOT BANK: 0xA0-0xA7\n");
-    write_text("TERMINAL HOT BANK: 0xA8-0xAF\n");
-    write_text("NETWORK RECOVERY COMMANDS: ACTIVE\n");
-    write_text(allocator_ok ? "PAGE ALLOCATOR: ACTIVE\n" : "PAGE ALLOCATOR: FAILED\n");
-    write_text("SCHEDULER: READY\n");
-    write_text("VIRTUAL TERMINALS: 4\n");
-    write_text("ALT-TAB TERMINAL SWITCH: HOT 0xAB\n");
-    write_text("SERIAL COM1: ACTIVE\n\n");
-    write_text("TYPE HELP FOR COMMANDS\n\n");
-    terminal_loop();
-}
+static inline uint8_t in8(uint16_t port){ uint8_t value; __asm__ volatile("inb %1, %0":"=a"(value):"Nd"(port)); return value; }
+static inline void out8(uint16_t port,uint8_t value){ __asm__ volatile("outb %0, %1"::"a"(value),"Nd"(port)); }
+static inline void io_wait(void){ out8(0x80u,0u); }
+static void zero_bytes(void *ptr,uint64_t bytes){ uint8_t *p=(uint8_t*)ptr; while(bytes--)*p++=0u; }
+static void serial_init(void){ out8(COM1+1u,0x00u); out8(COM1+3u,0x80u); out8(COM1+0u,0x03u); out8(COM1+1u,0x00u); out8(COM1+3u,0x03u); out8(COM1+2u,0xC7u); out8(COM1+4u,0x0Bu); g_serial_ready=1u; }
+static void serial_char(char c){ if(!g_serial_ready)return; if(c=='\n')serial_char('\r'); while(!(in8(COM1+5u)&0x20u))__asm__ volatile("pause"); out8(COM1,(uint8_t)c); }
+static void serial_text(const char *s){ while(*s)serial_char(*s++); }
+static void serial_u64(uint64_t value){ char digits[21]; uint32_t count=0; if(!value){serial_char('0');return;} while(value&&count<sizeof digits){digits[count++]=(char)('0'+value%10u);value/=10u;} while(count)serial_char(digits[--count]); }
+static int glyph_index(char c){ if(c==' ')return 0; if(c>='a'&&c<='z')c=(char)(c-'a'+'A'); if(c>='A'&&c<='Z')return 1+(c-'A'); if(c>='0'&&c<='9')return 27+(c-'0'); if(c==':')return 37; if(c=='-')return 38; if(c=='.')return 39; if(c=='!')return 40; if(c=='/')return 41; if(c=='>')return 42; return 0; }
+static uint32_t pack_rgb(uint8_t r,uint8_t g,uint8_t b){ return g_boot.pixel_format==OSAURA_PIXEL_RGBX8 ? (uint32_t)r|((uint32_t)g<<8)|((uint32_t)b<<16) : (uint32_t)b|((uint32_t)g<<8)|((uint32_t)r<<16); }
+static void put_pixel(uint32_t x,uint32_t y,uint32_t color){ if(x>=g_boot.width||y>=g_boot.height)return; volatile uint32_t *fb=(volatile uint32_t*)(uintptr_t)g_boot.framebuffer_base; fb[(uint64_t)y*g_boot.pixels_per_scanline+x]=color; }
+static void framebuffer_clear(void){ uint32_t bg=pack_rgb(0,0,0); for(uint32_t y=0;y<g_boot.height;++y)for(uint32_t x=0;x<g_boot.width;++x)put_pixel(x,y,bg); }
+static uint32_t terminal_cols(void){ uint32_t cols=g_boot.width>MARGIN?(g_boot.width-MARGIN)/CELL_W:1u; return cols>TERMINAL_COLS_MAX?TERMINAL_COLS_MAX:(cols?cols:1u); }
+static uint32_t terminal_rows(void){ uint32_t rows=g_boot.height>MARGIN?(g_boot.height-MARGIN)/CELL_H:1u; return rows>TERMINAL_ROWS_MAX?TERMINAL_ROWS_MAX:(rows?rows:1u); }
+static void render_glyph(uint32_t col,uint32_t row,char c){ int gi=glyph_index(c); uint32_t fg=pack_rgb(235,235,235),ox=col*CELL_W+MARGIN,oy=row*CELL_H+MARGIN; for(uint32_t y=0;y<GLYPH_H;++y){uint8_t bits=glyphs[gi][y];for(uint32_t x=0;x<GLYPH_W;++x){if(!(bits&(1u<<(GLYPH_W-1u-x))))continue;for(uint32_t sy=0;sy<SCALE;++sy)for(uint32_t sx=0;sx<SCALE;++sx)put_pixel(ox+x*SCALE+sx,oy+y*SCALE+sy,fg);}} }
+static terminal_session *active_terminal(void){ return &g_terminals[g_active_terminal]; }
+static void clear_screen(void){ terminal_session *term=active_terminal(); framebuffer_clear(); zero_bytes(term->cells,sizeof term->cells); term->col=term->row=0u; }
+static void terminal_newline(void){ terminal_session *term=active_terminal(); term->col=0u; ++term->row; if(term->row>=terminal_rows())clear_screen(); }
+static void draw_char(char c){ terminal_session *term=active_terminal(); serial_char(c); if(c=='\n'){terminal_newline();return;} if(term->row<TERMINAL_ROWS_MAX&&term->col<TERMINAL_COLS_MAX)term->cells[term->row][term->col]=c; render_glyph(term->col,term->row,c); ++term->col; if(term->col>=terminal_cols())terminal_newline(); }
+static void erase_char(void){ terminal_session *term=active_terminal(); if(!term->col)return; --term->col; term->cells[term->row][term->col]=0; uint32_t bg=pack_rgb(0,0,0),ox=term->col*CELL_W+MARGIN,oy=term->row*CELL_H+MARGIN; for(uint32_t y=0;y<CELL_H;++y)for(uint32_t x=0;x<CELL_W;++x)put_pixel(ox+x,oy+y,bg); serial_text("\b \b"); }
+static void write_text(const char *s){ while(*s)draw_char(*s++); }
+static void write_u64(uint64_t value){ char digits[21]; uint32_t count=0; if(!value){draw_char('0');return;} while(value&&count<sizeof digits){digits[count++]=(char)('0'+value%10u);value/=10u;} while(count)draw_char(digits[--count]); }
+static int text_equal(const char *a,const char *b){ while(*a&&*b){char ca=*a++,cb=*b++;if(ca>='a'&&ca<='z')ca=(char)(ca-'a'+'A');if(cb>='a'&&cb<='z')cb=(char)(cb-'a'+'A');if(ca!=cb)return 0;}return *a==0&&*b==0; }
+static void terminal_render(uint8_t id){ if(id>=TERMINAL_COUNT)return; framebuffer_clear(); terminal_session *term=&g_terminals[id]; uint32_t rows=terminal_rows(),cols=terminal_cols(); for(uint32_t row=0;row<rows;++row)for(uint32_t col=0;col<cols;++col)if(term->cells[row][col])render_glyph(col,row,term->cells[row][col]); }
+static void print_prompt(void){ write_text("OSAURA> "); }
+static void terminal_seed(uint8_t id){ terminal_session *term=&g_terminals[id]; if(term->initialized)return; term->initialized=1u; if(id==g_active_terminal){write_text("OSAURA TERMINAL ");write_u64((uint64_t)id+1u);write_text("\n");print_prompt();} }
+static void terminal_switch_next(void){ g_active_terminal=(uint8_t)((g_active_terminal+1u)%TERMINAL_COUNT); terminal_render(g_active_terminal); if(!active_terminal()->initialized)terminal_seed(g_active_terminal); serial_text("\nALT-TAB TERMINAL "); serial_u64((uint64_t)g_active_terminal+1u); serial_text("\n"); }
+
+static int hot_terminal_write_char(void *c,void *r){(void)c;if(!r)return-1;draw_char(*(const char*)r);return 1;}
+static int hot_terminal_erase(void *c,void *r){(void)c;(void)r;erase_char();return 1;}
+static int hot_terminal_newline(void *c,void *r){(void)c;(void)r;draw_char('\n');return 1;}
+static int hot_terminal_switch(void *c,void *r){(void)c;(void)r;terminal_switch_next();return 1;}
+static int hot_terminal_clear(void *c,void *r){(void)c;(void)r;clear_screen();return 1;}
+static int hot_terminal_render(void *c,void *r){(void)c;if(!r)return-1;terminal_render(*(const uint8_t*)r);return 1;}
+static int hot_terminal_prompt(void *c,void *r){(void)c;(void)r;print_prompt();return 1;}
+static int hot_terminal_seed(void *c,void *r){(void)c;if(!r)return-1;terminal_seed(*(const uint8_t*)r);return 1;}
+
+static void idt_set_gate(uint8_t vector,void *handler){ uint64_t address=(uint64_t)(uintptr_t)handler; idt_gate *gate=&g_idt[vector]; gate->offset_low=(uint16_t)address;gate->selector=0x08u;gate->ist=0u;gate->type_attr=0x8Eu;gate->offset_mid=(uint16_t)(address>>16);gate->offset_high=(uint32_t)(address>>32);gate->zero=0u; }
+static void idt_init(void){ for(uint32_t i=0;i<IDT_ENTRIES;++i){g_idt[i].offset_low=0;g_idt[i].selector=0;g_idt[i].ist=0;g_idt[i].type_attr=0;g_idt[i].offset_mid=0;g_idt[i].offset_high=0;g_idt[i].zero=0;} uintptr_t anchor=(uintptr_t)osaura_isr_anchor; for(uint32_t i=0;i<48u;++i){intptr_t offset=(intptr_t)osaura_isr_offsets[i];idt_set_gate((uint8_t)i,(void*)(anchor+offset));} osaura_arch_load_idt(g_idt,(uint16_t)(sizeof g_idt-1u)); }
+static void pic_remap(void){ uint8_t master_mask=in8(PIC1_DATA),slave_mask=in8(PIC2_DATA); out8(PIC1_CMD,0x11u);io_wait();out8(PIC2_CMD,0x11u);io_wait();out8(PIC1_DATA,IRQ_BASE);io_wait();out8(PIC2_DATA,IRQ_BASE+8u);io_wait();out8(PIC1_DATA,0x04u);io_wait();out8(PIC2_DATA,0x02u);io_wait();out8(PIC1_DATA,0x01u);io_wait();out8(PIC2_DATA,0x01u);io_wait();(void)master_mask;(void)slave_mask;out8(PIC1_DATA,0xFCu);out8(PIC2_DATA,0xFFu); }
+static void pic_eoi(uint8_t irq){ if(irq>=8u)out8(PIC2_CMD,0x20u);out8(PIC1_CMD,0x20u); }
+static void pit_init(void){ uint16_t divisor=(uint16_t)(PIT_INPUT_HZ/PIT_HZ);out8(PIT_COMMAND,0x36u);out8(PIT_CHANNEL0,(uint8_t)(divisor&0xFFu));out8(PIT_CHANNEL0,(uint8_t)(divisor>>8)); }
+
+static char ps2_decode_make(uint8_t sc){ if(sc>=0x02u&&sc<=0x0Au)return(char)('1'+sc-0x02u);if(sc==0x0Bu)return'0';if(sc==0x0Cu)return'-';if(sc==0x0Eu)return'\b';if(sc==0x0Fu)return'\t';if(sc==0x1Cu)return'\n';if(sc==0x39u)return' ';switch(sc){case 0x10:return'Q';case 0x11:return'W';case 0x12:return'E';case 0x13:return'R';case 0x14:return'T';case 0x15:return'Y';case 0x16:return'U';case 0x17:return'I';case 0x18:return'O';case 0x19:return'P';case 0x1E:return'A';case 0x1F:return'S';case 0x20:return'D';case 0x21:return'F';case 0x22:return'G';case 0x23:return'H';case 0x24:return'J';case 0x25:return'K';case 0x26:return'L';case 0x2C:return'Z';case 0x2D:return'X';case 0x2E:return'C';case 0x2F:return'V';case 0x30:return'B';case 0x31:return'N';case 0x32:return'M';default:return 0;} }
+static uint8_t ps2_usage(uint8_t sc){ if(sc>=0x02u&&sc<=0x0Au)return(uint8_t)(0x1eu+sc-0x02u);if(sc==0x0Bu)return 0x27u;if(sc==0x0Eu)return OSAURA_KEY_BACKSPACE;if(sc==0x0Fu)return OSAURA_KEY_TAB;if(sc==0x1Cu)return OSAURA_KEY_ENTER;if(sc==0x39u)return 0x2cu;switch(sc){case 0x10:return 0x14;case 0x11:return 0x1a;case 0x12:return 0x08;case 0x13:return 0x15;case 0x14:return 0x17;case 0x15:return 0x1c;case 0x16:return 0x18;case 0x17:return 0x0c;case 0x18:return 0x12;case 0x19:return 0x13;case 0x1E:return 0x04;case 0x1F:return 0x16;case 0x20:return 0x07;case 0x21:return 0x09;case 0x22:return 0x0a;case 0x23:return 0x0b;case 0x24:return 0x0d;case 0x25:return 0x0e;case 0x26:return 0x0f;case 0x2C:return 0x1d;case 0x2D:return 0x1b;case 0x2E:return 0x06;case 0x2F:return 0x19;case 0x30:return 0x05;case 0x31:return 0x11;case 0x32:return 0x10;default:return 0;} }
+static void keyboard_push_event(uint8_t usage,uint8_t modifiers,uint8_t pressed,char c){ uint8_t next=(uint8_t)((g_key_head+1u)%KEY_QUEUE_SIZE);if(next==g_key_tail)return;g_key_queue[g_key_head].usage=usage;g_key_queue[g_key_head].modifiers=modifiers;g_key_queue[g_key_head].pressed=pressed;g_key_queue[g_key_head].character=c;g_key_head=next; }
+static int keyboard_pop_event(osaura_key_event *event){ if(!event||g_key_tail==g_key_head)return 0;event->usage=g_key_queue[g_key_tail].usage;event->modifiers=g_key_queue[g_key_tail].modifiers;event->pressed=g_key_queue[g_key_tail].pressed;event->character=g_key_queue[g_key_tail].character;g_key_tail=(uint8_t)((g_key_tail+1u)%KEY_QUEUE_SIZE);return 1; }
+static void keyboard_irq(void){ uint8_t raw=in8(0x60u);if(raw==0xE0u){g_ps2_extended=1u;return;}uint8_t released=(raw&0x80u)!=0u,sc=raw&0x7fu;if(g_ps2_extended){g_ps2_extended=0u;if(sc==0x38u){if(released)g_ps2_modifiers&=(uint8_t)~OSAURA_KEY_MOD_ALT;else g_ps2_modifiers|=OSAURA_KEY_MOD_ALT;}else if(sc==0x1du){if(released)g_ps2_modifiers&=(uint8_t)~OSAURA_KEY_MOD_CTRL;else g_ps2_modifiers|=OSAURA_KEY_MOD_CTRL;}return;}if(sc==0x2Au||sc==0x36u){if(released)g_ps2_modifiers&=(uint8_t)~OSAURA_KEY_MOD_SHIFT;else g_ps2_modifiers|=OSAURA_KEY_MOD_SHIFT;return;}if(sc==0x1Du){if(released)g_ps2_modifiers&=(uint8_t)~OSAURA_KEY_MOD_CTRL;else g_ps2_modifiers|=OSAURA_KEY_MOD_CTRL;return;}if(sc==0x38u){if(released)g_ps2_modifiers&=(uint8_t)~OSAURA_KEY_MOD_ALT;else g_ps2_modifiers|=OSAURA_KEY_MOD_ALT;return;}uint8_t usage=ps2_usage(sc);char c=released?0:ps2_decode_make(sc);if(usage||c)keyboard_push_event(usage,g_ps2_modifiers,released?0u:1u,c); }
+static int input_pop_event_raw(osaura_key_event *event){ osaura_usb_poll();if(osaura_usb_keyboard_ready())return osaura_usb_keyboard_event_pop(event);return keyboard_pop_event(event); }
+static int hot_input_poll(void *c,void *r){(void)c;(void)r;osaura_usb_poll();return 1;}
+static int hot_input_pop(void *c,void *r){(void)c;return input_pop_event_raw((osaura_key_event*)r);}
+static int hot_input_push(void *c,void *r){(void)c;if(!r)return-1;const input_push_request *q=(const input_push_request*)r;keyboard_push_event(q->usage,q->modifiers,q->pressed,q->character);return 1;}
+static int hot_input_ps2(void *c,void *r){(void)c;(void)r;keyboard_irq();return 1;}
+static int hot_input_usb(void *c,void *r){(void)c;return osaura_usb_keyboard_event_pop((osaura_key_event*)r);}
+static int hot_input_modifiers(void *c,void *r){(void)c;if(!r)return-1;*(uint8_t*)r=g_ps2_modifiers;return 1;}
+static int hot_input_ready(void *c,void *r){(void)c;(void)r;return osaura_usb_keyboard_ready()||g_key_tail!=g_key_head;}
+static int hot_input_wake(void *c,void *r){(void)c;(void)r;return 1;}
+
+static void io_hot_bind(void){
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT,INPUT_HOT_POLL,hot_input_poll,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT,INPUT_HOT_POP,hot_input_pop,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT,INPUT_HOT_PUSH,hot_input_push,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT,INPUT_HOT_PS2,hot_input_ps2,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT,INPUT_HOT_USB,hot_input_usb,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT,INPUT_HOT_MODIFIERS,hot_input_modifiers,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT,INPUT_HOT_READY,hot_input_ready,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_INPUT,INPUT_HOT_WAKE,hot_input_wake,0);
+    (void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_WRITE_CHAR,hot_terminal_write_char,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_ERASE,hot_terminal_erase,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_NEWLINE,hot_terminal_newline,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_SWITCH,hot_terminal_switch,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_CLEAR,hot_terminal_clear,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_RENDER,hot_terminal_render,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_PROMPT,hot_terminal_prompt,0);(void)osaura_hot_bind(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_SEED,hot_terminal_seed,0);
+}
+static int input_pop_event(osaura_key_event *event){ return osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_INPUT,INPUT_HOT_POP),event); }
+static void terminal_hot_char(char c){(void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_WRITE_CHAR),&c);}
+static void terminal_hot_erase(void){(void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_ERASE),0);}
+static void terminal_hot_switch(void){(void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_SWITCH),0);}
+
+void osaura_interrupt_dispatch(uint64_t vector,uint64_t error_code){ if(vector<32u){osaura_arch_disable_interrupts();serial_text("\nOSAURA EXCEPTION VECTOR ");serial_u64(vector);serial_text(" ERROR ");serial_u64(error_code);serial_text("\nCPU HALTED\n");for(;;)__asm__ volatile("hlt");}if(vector>=IRQ_BASE&&vector<IRQ_BASE+16u){uint8_t irq=(uint8_t)(vector-IRQ_BASE);if(irq==IRQ_TIMER)++osaura_ticks;else if(irq==IRQ_KEYBOARD)(void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_INPUT,INPUT_HOT_PS2),0);pic_eoi(irq);} }
+static const efi_memory_descriptor_view *memory_descriptor(uint64_t index){ if(!g_boot.memory_descriptor_size)return 0;uint64_t count=g_boot.memory_map_size/g_boot.memory_descriptor_size;if(index>=count)return 0;const uint8_t *base=(const uint8_t*)(uintptr_t)g_boot.memory_map;return(const efi_memory_descriptor_view*)(const void*)(base+index*g_boot.memory_descriptor_size); }
+static uint64_t pages_below_minimum(const efi_memory_descriptor_view *d){ if(d->physical_start>=MIN_ALLOC_PHYS)return 0;uint64_t bytes=MIN_ALLOC_PHYS-d->physical_start,pages=(bytes+PAGE_SIZE-1u)/PAGE_SIZE;return pages>d->number_of_pages?d->number_of_pages:pages; }
+static uint64_t descriptor_mapped_pages(const efi_memory_descriptor_view *d){ if(!d||d->physical_start>=OSAURA_VM_DIRECT_LIMIT)return 0;uint64_t mapped=(OSAURA_VM_DIRECT_LIMIT-d->physical_start)/PAGE_SIZE;return mapped<d->number_of_pages?mapped:d->number_of_pages; }
+static void page_allocator_init(void){g_free_pages=g_allocated_pages=g_alloc_desc_index=g_alloc_page_index=0;if(g_boot.memory_descriptor_size<sizeof(efi_memory_descriptor_view))return;uint64_t count=g_boot.memory_map_size/g_boot.memory_descriptor_size;for(uint64_t i=0;i<count;++i){const efi_memory_descriptor_view*d=memory_descriptor(i);if(!d||d->type!=EFI_CONVENTIONAL_MEMORY)continue;uint64_t usable=descriptor_mapped_pages(d),skip=pages_below_minimum(d);if(usable>skip)g_free_pages+=usable-skip;}}
+static void *page_alloc(void){uint64_t count=g_boot.memory_descriptor_size?g_boot.memory_map_size/g_boot.memory_descriptor_size:0;while(g_alloc_desc_index<count){const efi_memory_descriptor_view*d=memory_descriptor(g_alloc_desc_index);if(!d||d->type!=EFI_CONVENTIONAL_MEMORY){++g_alloc_desc_index;g_alloc_page_index=0;continue;}uint64_t usable=descriptor_mapped_pages(d),skip=pages_below_minimum(d);if(g_alloc_page_index<skip)g_alloc_page_index=skip;if(g_alloc_page_index<usable){uint64_t address=d->physical_start+g_alloc_page_index*PAGE_SIZE;++g_alloc_page_index;if(g_free_pages)--g_free_pages;++g_allocated_pages;return(void*)(uintptr_t)address;}++g_alloc_desc_index;g_alloc_page_index=0;}return 0;}
+static int page_allocator_self_test(void){uintptr_t frame=(uintptr_t)page_alloc();return frame>=MIN_ALLOC_PHYS&&frame<OSAURA_VM_DIRECT_LIMIT&&(frame&(PAGE_SIZE-1u))==0u;}
+static void interrupts_init(void){osaura_arch_disable_interrupts();serial_text("BOOT: GDT\n");osaura_arch_load_gdt();serial_text("BOOT: IDT\n");idt_init();serial_text("BOOT: PIC\n");pic_remap();serial_text("BOOT: PIT\n");pit_init();serial_text("BOOT: STI\n");osaura_arch_enable_interrupts();}
+static void wait_for_timer_irq(void){uint64_t start=osaura_ticks;while(osaura_ticks-start<2u)__asm__ volatile("hlt");}
+static void print_tasks(void){uint32_t count=osaura_scheduler_task_count();write_text("TASKS: ");write_u64(count);write_text(" CURRENT: ");write_u64(osaura_scheduler_current_task());write_text("\n");for(uint32_t id=0;id<count;++id){write_text(osaura_scheduler_task_name(id));write_text(" TICKS: ");write_u64(osaura_scheduler_task_ticks(id));write_text(" SWITCHES: ");write_u64(osaura_scheduler_task_switches(id));write_text("\n");}}
+static void print_terminals(void){write_text("TERMINALS: ");write_u64(TERMINAL_COUNT);write_text(" ACTIVE: ");write_u64((uint64_t)g_active_terminal+1u);write_text(" ALT-TAB: ACTIVE\n");}
+static void run_command(const char *line){if(!line[0])return;if(text_equal(line,"HELP")){write_text("HELP ABOUT MEM VM TASKS TICKS ALLOC CLEAR HALT TERMINALS USB\n");write_text("NET IP ROUTE ARP PING DNS RESOLVE NETSTAT CURL WGET FETCH\n");}else if(text_equal(line,"ABOUT")){write_text("OSAURA NATIVE X86-64 KERNEL\n");write_text("VM INTERRUPTS TASKS USB VIRTUAL TERMINALS AND NETWORK RECOVERY OWNED\n");}else if(text_equal(line,"MEM")){write_text("MEMORY MAP BYTES: ");write_u64(g_boot.memory_map_size);write_text("\nDESCRIPTORS: ");write_u64(g_boot.memory_descriptor_size?g_boot.memory_map_size/g_boot.memory_descriptor_size:0);write_text("\nFREE PAGES: ");write_u64(g_free_pages);write_text("\nALLOCATED PAGES: ");write_u64(g_allocated_pages);write_text("\n");}else if(text_equal(line,"VM")){write_text("OWNED CR3: ");write_u64(osaura_vm_cr3());write_text("\nDIRECT MAP GIB: ");write_u64(osaura_vm_direct_limit()>>30);write_text("\nPAGE SIZE MIB: 2\n");}else if(text_equal(line,"TASKS"))print_tasks();else if(text_equal(line,"TICKS")){write_text("PIT TICKS: ");write_u64(osaura_ticks);write_text("\n");}else if(text_equal(line,"ALLOC")){void*page=page_alloc();write_text(page?"PHYSICAL PAGE FRAME ALLOCATED\n":"OUT OF PAGE FRAMES\n");}else if(text_equal(line,"TERMINALS"))print_terminals();else if(text_equal(line,"USB")){write_text(osaura_usb_xhci_present()?"USB XHCI: ACTIVE\n":"USB XHCI: NOT FOUND\n");write_text(osaura_usb_keyboard_ready()?"USB HID KEYBOARD: ACTIVE\n":"USB HID KEYBOARD: NOT FOUND\n");}else if(text_equal(line,"CLEAR")){clear_screen();serial_text("\nSCREEN CLEARED\n");}else if(text_equal(line,"HALT")){write_text("CPU HALTED\n");osaura_arch_disable_interrupts();for(;;)__asm__ volatile("hlt");}else if(osaura_net_command(line,write_text))return;else write_text("UNKNOWN COMMAND\n");}
+
+__attribute__((noreturn)) static void terminal_loop(void){uint8_t zero=0u;(void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_SEED),&zero);osaura_scheduler_start();for(;;){osaura_key_event event;if(input_pop_event(&event)<=0){__asm__ volatile("hlt");continue;}if(event.pressed&&event.usage==OSAURA_KEY_TAB&&(event.modifiers&OSAURA_KEY_MOD_ALT)){terminal_hot_switch();continue;}if(!event.pressed)continue;char c=event.character;if(!c||c=='\t')continue;terminal_session*term=active_terminal();if(c=='\b'){if(term->length){--term->length;terminal_hot_erase();}continue;}if(c=='\n'){term->line[term->length]=0;terminal_hot_char('\n');run_command(term->line);term->length=0u;(void)osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_TERMINAL,TERMINAL_HOT_PROMPT),0);continue;}if(term->length+1u<LINE_MAX){term->line[term->length++]=c;terminal_hot_char(c);}}}
+
+__attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot){serial_init();if(!boot||boot->version!=OSAURA_BOOT_INFO_VERSION||!boot->framebuffer_base){serial_text("OSAURA KERNEL BOOT INFO ERROR\n");osaura_arch_disable_interrupts();for(;;)__asm__ volatile("hlt");}g_boot=*boot;zero_bytes(g_terminals,sizeof g_terminals);g_active_terminal=0u;serial_text("BOOT: INFO OK\n");page_allocator_init();serial_text("BOOT: FRAME MAP INDEXED\n");int allocator_ok=page_allocator_self_test();serial_text("BOOT: VM BUILD\n");if(!osaura_vm_init(&g_boot)){serial_text("BOOT: VM FAILED\n");osaura_arch_disable_interrupts();for(;;)__asm__ volatile("hlt");}serial_text("BOOT: CR3 OWNED\n");framebuffer_clear();serial_text("BOOT: USB XHCI\n");int usb_ok=osaura_usb_init();serial_text(usb_ok?"BOOT: USB XHCI READY\n":"BOOT: USB XHCI FALLBACK\n");serial_text("BOOT: NETWORK DISCOVERY\n");osaura_net_init();serial_text("BOOT: NETWORK CORE READY\n");io_hot_bind();serial_text("BOOT: INPUT TERMINAL HOT SHADOWS READY\n");interrupts_init();serial_text("BOOT: WAIT IRQ0\n");wait_for_timer_irq();serial_text("BOOT: IRQ0 RECEIVED\n");osaura_scheduler_init();serial_text("BOOT: SCHEDULER READY\n");write_text("OSAURA KERNEL 0.5-DEV\n");write_text("X86-64 NATIVE MODE\n");write_text("UEFI BOOT SERVICES: EXITED\n");write_text("FRAMEBUFFER: OWNED\n");write_text("MEMORY MAP: CAPTURED\n");write_text("PAGE TABLES: OWNED\n");write_text("DIRECT MAP: 64 GIB\n");write_text("GDT: ACTIVE\n");write_text("IDT: ACTIVE\n");write_text("PIC: REMAPPED 32-47\n");write_text("PIT IRQ0: ACTIVE\n");write_text("PS2 IRQ1: HOT 0xA3\n");write_text(usb_ok?"USB XHCI: ACTIVE\n":"USB XHCI: FALLBACK\n");write_text(osaura_usb_keyboard_ready()?"USB HID KEYBOARD: ACTIVE\n":"USB HID KEYBOARD: NOT FOUND\n");write_text("INPUT HOT BANK: 0xA0-0xA7\n");write_text("TERMINAL HOT BANK: 0xA8-0xAF\n");write_text("NETWORK RECOVERY COMMANDS: ACTIVE\n");write_text(allocator_ok?"PAGE ALLOCATOR: ACTIVE\n":"PAGE ALLOCATOR: FAILED\n");write_text("SCHEDULER: READY\n");write_text("VIRTUAL TERMINALS: 4\n");write_text("ALT-TAB TERMINAL SWITCH: HOT 0xAB\n");write_text("SERIAL COM1: ACTIVE\n\n");write_text("TYPE HELP FOR COMMANDS\n\n");terminal_loop();}
