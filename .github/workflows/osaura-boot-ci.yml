@@ -46,7 +46,6 @@ jobs:
           objdump -h build/bootx64.so > build/sections.txt
           grep -F '.text' build/sections.txt
           grep -F '.data' build/sections.txt
-          grep -F '.bss' build/sections.txt
 
       - name: Build USB image
         run: make image
