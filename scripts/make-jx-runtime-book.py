@@ -4,6 +4,17 @@
 The package follows dompipe/jx NativeBook64: the first stored entry is the
 48-byte JX64/header.bin identity record, the second is JX64/manifest.json, and
 compiled sections follow in stable lexical order.
+
+This bootstrap Book deliberately carries compiler-produced runtime roots rather
+than relying on C slot order:
+
+* BAG/schema.bin       canonical record Bag field layout
+* CODE/applied-bus.bin stable JX BUS system entrypoints
+* CODE/prepared.bin    compact prepared-call byte stream
+* HOT/calls.bin        generation-scoped call bindings
+* HOT/registers.bin    W:slot:shadow -> reaction routes
+* HOT/reactions.bin    reaction -> prepared-call offsets
+* META/generations.bin active/candidate program generations
 """
 
 from __future__ import annotations
@@ -18,6 +29,22 @@ from pathlib import Path
 FIXED_TIME = (2000, 1, 1, 0, 0, 0)
 MAGIC = b"JX64B001"
 FORMAT = "jx.64B/1"
+
+BAG_FIELDS = (
+    "heartbeat",
+    "bus_ticks",
+    "bus_collects",
+    "channel_messages",
+    "channel_deliveries",
+    "channel_switches",
+    "last_message_type",
+    "prepared_calls",
+    "hot_dispatches",
+    "reaction_runs",
+    "reaction_value",
+    "generation_swaps",
+    "active_generation",
+)
 
 
 def sha256(data: bytes) -> bytes:
@@ -44,7 +71,7 @@ def stable_manifest(sections: dict[str, bytes]) -> tuple[bytes, str]:
         "arch": "x86_64",
         "target": "osaura",
         "book": "runtime-bootstrap",
-        "compiler": "osaura-bootstrap/1",
+        "compiler": "osaura-bootstrap/2",
         "content_sha256": content_sha,
         "sections": rows,
     }
@@ -53,6 +80,83 @@ def stable_manifest(sections: dict[str, bytes]) -> tuple[bytes, str]:
         + "\n"
     ).encode("utf-8")
     return encoded, content_sha
+
+
+def bag_schema() -> bytes:
+    out = bytearray(b"JXBAG001")
+    out += struct.pack("<HH", 1, len(BAG_FIELDS))
+    for slot, name in enumerate(BAG_FIELDS):
+        encoded = name.encode("ascii")
+        out += struct.pack("<BBH", slot, 1, len(encoded))  # type 1 = u64
+        out += encoded
+    return bytes(out)
+
+
+def prepared_calls() -> bytes:
+    # JX ASM-call v3 rows:
+    # generation, family, slot, promoted-opcode, micro-slot, arity,
+    # native-operation, flags.
+    rows = []
+    for generation in (1, 2):
+        rows.extend(
+            (
+                (generation, 0, 1, 0x80, 0xFF, 0, 1, 0),  # heartbeat++
+                (generation, 0, 2, 0x81, 0xFF, 0, 2, 0),  # reaction_runs++
+                (generation, 0, 3, 0xFF, 0, 1, 3, 0),     # reaction_value += r0
+            )
+        )
+    out = bytearray(b"JXCALL01")
+    out += struct.pack("<HH", 3, len(rows))
+    for row in rows:
+        out += struct.pack("<BBBBBBBB", *row)
+    return bytes(out)
+
+
+def hot_registers() -> bytes:
+    # generation, register, slot, shadow, reaction-id, delivery, flags.
+    rows = (
+        (1, 1, 0, 0, 1, 0, 0),
+        (1, 1, 1, 0, 2, 0, 0),
+        (2, 1, 0, 0, 3, 0, 0),
+        (2, 1, 1, 0, 4, 0, 0),
+    )
+    out = bytearray(b"JXREG001")
+    out += struct.pack("<HH", 1, len(rows))
+    for generation, reg, slot, shadow, reaction, delivery, flags in rows:
+        out += struct.pack(
+            "<BBBBHBB", generation, reg, slot, shadow, reaction, delivery, flags
+        )
+    return bytes(out)
+
+
+def hot_reactions() -> bytes:
+    # generation, reaction-id, prepared-code-offset, frame-register,
+    # immediate scalar, flags.
+    rows = (
+        (1, 1, 1, 0, 0, 0),  # promoted 0x81: reaction_runs++
+        (1, 2, 4, 0, 3, 0),  # micro0 r0: reaction_value += 3
+        (2, 3, 1, 0, 0, 0),
+        (2, 4, 4, 0, 5, 0),  # same route after cutover adds 5
+    )
+    out = bytearray(b"JXREA001")
+    out += struct.pack("<HH", 1, len(rows))
+    for generation, reaction, offset, frame_reg, immediate, flags in rows:
+        out += struct.pack(
+            "<BBHBBH", generation, reaction, offset, frame_reg, immediate, flags
+        )
+    return bytes(out)
+
+
+def generations() -> bytes:
+    rows = (
+        (1, 0x80000001),
+        (2, 0x80000002),
+    )
+    out = bytearray(b"JXGEN001")
+    out += struct.pack("<HH", 1, len(rows))
+    for generation, endpoint in rows:
+        out += struct.pack("<QI", generation, endpoint)
+    return bytes(out)
 
 
 def zip_info(name: str) -> zipfile.ZipInfo:
@@ -65,11 +169,18 @@ def zip_info(name: str) -> zipfile.ZipInfo:
 
 def build(path: Path) -> None:
     sections = {
-        "BAG/schema.bin": (
-            b"jx.bag.container/1\0record\0heartbeat\0bus_ticks\0bus_collects\0"
-            b"channel_messages\0channel_deliveries\0"
-        ),
+        "BAG/schema.bin": bag_schema(),
         "CODE/applied-bus.bin": bytes((0x7F, 0x00, 0x01, 0x7F, 0x00, 0x02)),
+        # Exercises all three JX prepared-call tiers:
+        #   0x80       promoted one-byte call
+        #   0x81       promoted one-byte call
+        #   0x00 0x02 sparse family/slot two-byte call
+        #   0xC0       micro0 with first selector r0 (arity 1 => one byte)
+        "CODE/prepared.bin": bytes((0x80, 0x81, 0x00, 0x02, 0xC0)),
+        "HOT/calls.bin": prepared_calls(),
+        "HOT/reactions.bin": hot_reactions(),
+        "HOT/registers.bin": hot_registers(),
+        "META/generations.bin": generations(),
     }
 
     manifest, content_sha = stable_manifest(sections)
