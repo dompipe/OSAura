@@ -1,4 +1,5 @@
 #include "hot-shadow.h"
+#include "usb-hot.h"
 
 #include <stdint.h>
 
@@ -12,6 +13,7 @@ void osaura_hot_init(void) {
         g_hot.slot[i].hits = 0u;
     }
     g_hot_initialized = 1u;
+    (void)osaura_usb_hot_bind();
 }
 
 static void ensure_hot_init(void) {
