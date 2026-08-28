@@ -1,0 +1,16 @@
+name: JX prepared runtime CI
+
+on:
+  push:
+    branches: [ jx-live-book-generations ]
+  pull_request:
+
+jobs:
+  prepared:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build prepared runtime test
+        run: cc -std=c11 -Wall -Wextra -Werror -pedantic -Iruntime/jx tests/jx-prepared-test.c runtime/jx/jx-prepared.c -o /tmp/jx-prepared-test
+      - name: Run prepared runtime test
+        run: /tmp/jx-prepared-test
