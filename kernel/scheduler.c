@@ -13,12 +13,17 @@
 #define IRET64_QWORDS 5u
 #define SAVED_FRAME_QWORDS (SAVED_GPRS_QWORDS + IRET64_QWORDS)
 #define FRAME_WITH_RETURN_QWORDS (SAVED_FRAME_QWORDS + 1u)
+#define OSAURA_TERMINAL_MAX 8u
 
 typedef struct {
     uint64_t *saved_rsp;
     uint64_t ticks;
     uint64_t switches;
-    uint8_t ready;
+    const char *name;
+    osaura_task_state state;
+    osaura_task_role role;
+    uint8_t terminal_id;
+    uint8_t background;
 } osaura_task;
 
 /* Set by the UEFI loader before ExitBootServices. */
@@ -30,8 +35,12 @@ extern uint64_t osaura_jx_next_book_size;
 static osaura_task g_tasks[OSAURA_TASK_MAX];
 static uint64_t g_jx_stack[TASK_STACK_QWORDS] __attribute__((aligned(16)));
 static uint64_t g_idle_stack[TASK_STACK_QWORDS] __attribute__((aligned(16)));
+static uint32_t g_foreground[OSAURA_TERMINAL_MAX];
+static uint32_t g_background_stack[OSAURA_JOB_MAX];
+static uint32_t g_background_count;
 static uint32_t g_current;
 static uint32_t g_quantum_ticks;
+static uint32_t g_task_high_water;
 static uint8_t g_initialized;
 static uint8_t g_running;
 
@@ -63,22 +72,38 @@ static uint64_t *build_initial_frame(uint64_t *stack,
     return frame;
 }
 
+static void task_clear(osaura_task *task) {
+    if (!task) return;
+    task->saved_rsp = 0;
+    task->ticks = 0;
+    task->switches = 0;
+    task->name = "UNUSED";
+    task->state = OSAURA_TASK_UNUSED;
+    task->role = OSAURA_TASK_ROLE_KERNEL;
+    task->terminal_id = 0u;
+    task->background = 0u;
+}
+
+static int task_schedulable(uint32_t id) {
+    return id < OSAURA_TASK_MAX &&
+           g_tasks[id].state == OSAURA_TASK_RUNNABLE &&
+           (id == 0u || g_tasks[id].saved_rsp != 0);
+}
+
 void osaura_scheduler_init(void) {
-    for (uint32_t i = 0; i < OSAURA_TASK_MAX; ++i) {
-        g_tasks[i].saved_rsp = 0;
-        g_tasks[i].ticks = 0;
-        g_tasks[i].switches = 0;
-        g_tasks[i].ready = 0;
-    }
+    for (uint32_t i = 0; i < OSAURA_TASK_MAX; ++i) task_clear(&g_tasks[i]);
+    for (uint32_t i = 0; i < OSAURA_TERMINAL_MAX; ++i) g_foreground[i] = OSAURA_TASK_NONE;
+    for (uint32_t i = 0; i < OSAURA_JOB_MAX; ++i) g_background_stack[i] = OSAURA_TASK_NONE;
+    g_background_count = 0u;
 
     /* Task zero is the bootstrap shell. Its frame is captured by IRQ0. */
-    g_tasks[0].ready = 1u;
+    g_tasks[0].name = "SHELL";
+    g_tasks[0].state = OSAURA_TASK_RUNNABLE;
+    g_tasks[0].role = OSAURA_TASK_ROLE_KERNEL;
 
     /*
-     * Task one is admitted only after the boot Book verifies and a candidate
-     * Book has been queued for the runtime task. The candidate is not trusted
-     * or activated here; verification and root cutover happen inside JX at a
-     * quiescent boundary after scheduling begins.
+     * Task one is the JX service runtime. It is not a user job: fg/bg must not
+     * accidentally detach the language runtime that services all terminals.
      */
     int jx_book_ok = osaura_jx_runtime_load_book(
                          (const void *)(uintptr_t)osaura_jx_boot_book,
@@ -87,23 +112,30 @@ void osaura_scheduler_init(void) {
                           osaura_jx_runtime_queue_book(
                               (const void *)(uintptr_t)osaura_jx_next_book,
                               osaura_jx_next_book_size) == 0;
+    g_tasks[1].name = "JX-RUNTIME";
+    g_tasks[1].role = OSAURA_TASK_ROLE_SERVICE;
     if (jx_candidate_ok) {
         g_tasks[1].saved_rsp = build_initial_frame(g_jx_stack,
                                                    TASK_STACK_QWORDS,
                                                    osaura_jx_runtime_task);
     }
-    g_tasks[1].ready = jx_candidate_ok && g_tasks[1].saved_rsp != 0;
+    g_tasks[1].state = (jx_candidate_ok && g_tasks[1].saved_rsp) ?
+                       OSAURA_TASK_RUNNABLE : OSAURA_TASK_UNUSED;
 
     /* Task two is the kernel idle thread used when no service work is needed. */
+    g_tasks[2].name = "IDLE";
+    g_tasks[2].role = OSAURA_TASK_ROLE_KERNEL;
     g_tasks[2].saved_rsp = build_initial_frame(g_idle_stack,
                                                TASK_STACK_QWORDS,
                                                osaura_idle_task);
-    g_tasks[2].ready = g_tasks[2].saved_rsp != 0;
+    g_tasks[2].state = g_tasks[2].saved_rsp ? OSAURA_TASK_RUNNABLE : OSAURA_TASK_UNUSED;
 
-    g_current = 0;
-    g_quantum_ticks = 0;
-    g_running = 0;
-    g_initialized = g_tasks[1].ready && g_tasks[2].ready;
+    g_current = 0u;
+    g_quantum_ticks = 0u;
+    g_task_high_water = OSAURA_BOOT_TASK_COUNT;
+    g_running = 0u;
+    g_initialized = g_tasks[1].state == OSAURA_TASK_RUNNABLE &&
+                    g_tasks[2].state == OSAURA_TASK_RUNNABLE;
 }
 
 void osaura_scheduler_start(void) {
@@ -113,7 +145,7 @@ void osaura_scheduler_start(void) {
 static uint32_t next_ready_task(uint32_t current) {
     for (uint32_t step = 1; step <= OSAURA_TASK_MAX; ++step) {
         uint32_t candidate = (current + step) % OSAURA_TASK_MAX;
-        if (g_tasks[candidate].ready) return candidate;
+        if (task_schedulable(candidate)) return candidate;
     }
     return current;
 }
@@ -122,23 +154,23 @@ uint64_t *osaura_scheduler_on_timer(uint64_t *interrupt_frame) {
     if (!interrupt_frame) return interrupt_frame;
     if (!g_initialized || !g_running) return interrupt_frame;
 
-    g_tasks[g_current].ticks++;
+    if (g_current < OSAURA_TASK_MAX) g_tasks[g_current].ticks++;
     if (++g_quantum_ticks < OSAURA_SCHEDULER_QUANTUM_TICKS)
         return interrupt_frame;
-    g_quantum_ticks = 0;
+    g_quantum_ticks = 0u;
 
-    g_tasks[g_current].saved_rsp = interrupt_frame;
+    if (g_current < OSAURA_TASK_MAX) g_tasks[g_current].saved_rsp = interrupt_frame;
     uint32_t next = next_ready_task(g_current);
     if (next == g_current || !g_tasks[next].saved_rsp)
         return interrupt_frame;
 
-    g_tasks[g_current].switches++;
+    if (g_current < OSAURA_TASK_MAX) g_tasks[g_current].switches++;
     g_current = next;
     return g_tasks[next].saved_rsp;
 }
 
 uint32_t osaura_scheduler_task_count(void) {
-    return g_initialized ? OSAURA_TASK_MAX : 1u;
+    return g_initialized ? g_task_high_water : 1u;
 }
 
 uint32_t osaura_scheduler_current_task(void) {
@@ -146,20 +178,93 @@ uint32_t osaura_scheduler_current_task(void) {
 }
 
 const char *osaura_scheduler_task_name(uint32_t task_id) {
-    switch (task_id) {
-        case 0: return "SHELL";
-        case 1: return "JX-RUNTIME";
-        case 2: return "IDLE";
-        default: return "UNKNOWN";
-    }
+    if (task_id >= OSAURA_TASK_MAX || g_tasks[task_id].state == OSAURA_TASK_UNUSED)
+        return "UNUSED";
+    return g_tasks[task_id].name ? g_tasks[task_id].name : "TASK";
 }
 
 uint64_t osaura_scheduler_task_ticks(uint32_t task_id) {
-    return task_id < OSAURA_TASK_MAX ? g_tasks[task_id].ticks : 0;
+    return task_id < OSAURA_TASK_MAX ? g_tasks[task_id].ticks : 0u;
 }
 
 uint64_t osaura_scheduler_task_switches(uint32_t task_id) {
-    return task_id < OSAURA_TASK_MAX ? g_tasks[task_id].switches : 0;
+    return task_id < OSAURA_TASK_MAX ? g_tasks[task_id].switches : 0u;
+}
+
+osaura_task_state osaura_scheduler_task_state(uint32_t task_id) {
+    return task_id < OSAURA_TASK_MAX ? g_tasks[task_id].state : OSAURA_TASK_UNUSED;
+}
+
+osaura_task_role osaura_scheduler_task_role(uint32_t task_id) {
+    return task_id < OSAURA_TASK_MAX ? g_tasks[task_id].role : OSAURA_TASK_ROLE_KERNEL;
+}
+
+int osaura_scheduler_set_task_state(uint32_t task_id, osaura_task_state state) {
+    if (task_id >= OSAURA_TASK_MAX || task_id == 0u || task_id == 2u ||
+        g_tasks[task_id].state == OSAURA_TASK_UNUSED || state == OSAURA_TASK_UNUSED)
+        return -1;
+    g_tasks[task_id].state = state;
+    return 0;
+}
+
+int osaura_scheduler_attach_program(uint32_t task_id, uint8_t terminal_id) {
+    if (task_id >= OSAURA_TASK_MAX || terminal_id >= OSAURA_TERMINAL_MAX ||
+        g_tasks[task_id].state == OSAURA_TASK_UNUSED ||
+        g_tasks[task_id].role != OSAURA_TASK_ROLE_PROGRAM)
+        return -1;
+    uint32_t old = g_foreground[terminal_id];
+    if (old != OSAURA_TASK_NONE && old < OSAURA_TASK_MAX && old != task_id)
+        g_tasks[old].background = 1u;
+    g_foreground[terminal_id] = task_id;
+    g_tasks[task_id].terminal_id = terminal_id;
+    g_tasks[task_id].background = 0u;
+    return 0;
+}
+
+int osaura_scheduler_background(uint8_t terminal_id, uint32_t *task_id) {
+    if (terminal_id >= OSAURA_TERMINAL_MAX || g_background_count >= OSAURA_JOB_MAX)
+        return -1;
+    uint32_t id = g_foreground[terminal_id];
+    if (id == OSAURA_TASK_NONE || id >= OSAURA_TASK_MAX ||
+        g_tasks[id].role != OSAURA_TASK_ROLE_PROGRAM ||
+        g_tasks[id].state == OSAURA_TASK_UNUSED)
+        return -2;
+    g_foreground[terminal_id] = OSAURA_TASK_NONE;
+    g_tasks[id].background = 1u;
+    g_background_stack[g_background_count++] = id;
+    if (task_id) *task_id = id;
+    return 0;
+}
+
+int osaura_scheduler_foreground(uint8_t terminal_id, uint32_t *task_id) {
+    if (terminal_id >= OSAURA_TERMINAL_MAX) return -1;
+    if (g_foreground[terminal_id] != OSAURA_TASK_NONE) return -2;
+    while (g_background_count) {
+        uint32_t id = g_background_stack[--g_background_count];
+        g_background_stack[g_background_count] = OSAURA_TASK_NONE;
+        if (id >= OSAURA_TASK_MAX || g_tasks[id].state == OSAURA_TASK_UNUSED ||
+            g_tasks[id].role != OSAURA_TASK_ROLE_PROGRAM || !g_tasks[id].background)
+            continue;
+        g_tasks[id].background = 0u;
+        g_tasks[id].terminal_id = terminal_id;
+        g_foreground[terminal_id] = id;
+        if (task_id) *task_id = id;
+        return 0;
+    }
+    return -3;
+}
+
+uint32_t osaura_scheduler_foreground_task(uint8_t terminal_id) {
+    return terminal_id < OSAURA_TERMINAL_MAX ? g_foreground[terminal_id] : OSAURA_TASK_NONE;
+}
+
+uint32_t osaura_scheduler_background_count(void) {
+    return g_background_count;
+}
+
+uint32_t osaura_scheduler_background_task(uint32_t stack_index) {
+    if (stack_index >= g_background_count) return OSAURA_TASK_NONE;
+    return g_background_stack[stack_index];
 }
 
 int osaura_scheduler_running(void) {
