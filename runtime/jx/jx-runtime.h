@@ -9,9 +9,11 @@
 #define OSAURA_JX_RUNTIME_TICK_OFFSET 0u
 #define OSAURA_JX_RUNTIME_COLLECT_OFFSET 3u
 
-/* Load and verify a memory-resident deterministic JX .64B compiled Book. */
+/* Load the boot Book and queue a second memory-resident Book for live cutover. */
 int osaura_jx_runtime_load_book(const void *bytes, uint64_t size);
+int osaura_jx_runtime_queue_book(const void *bytes, uint64_t size);
 int osaura_jx_runtime_book_loaded(void);
+int osaura_jx_runtime_candidate_queued(void);
 
 __attribute__((noreturn)) void osaura_jx_runtime_task(void);
 
@@ -31,6 +33,7 @@ uint64_t osaura_jx_runtime_reaction_value(void);
 uint64_t osaura_jx_runtime_generation_swaps(void);
 uint64_t osaura_jx_runtime_active_generation(void);
 uint64_t osaura_jx_runtime_previous_generation(void);
+uint64_t osaura_jx_runtime_live_book_activations(void);
 uint64_t osaura_jx_runtime_errors(void);
 
 #endif
