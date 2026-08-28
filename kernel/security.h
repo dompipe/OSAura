@@ -4,6 +4,8 @@
 #include <stdint.h>
 
 #define OSAURA_SECURITY_SUBJECT_MAX 16u
+#define OSAURA_SECURITY_KERNEL_SUBJECT 0u
+#define OSAURA_SECURITY_JX_SUBJECT 1u
 
 #define OSAURA_CAP_STORAGE_READ  (1ull << 0)
 #define OSAURA_CAP_STORAGE_WRITE (1ull << 1)
@@ -30,6 +32,7 @@ enum {
 };
 
 typedef struct {
+    uint32_t actor;
     uint32_t subject;
     uint32_t parent;
     uint64_t rights;
@@ -40,6 +43,10 @@ typedef struct {
 void osaura_security_init(void);
 int osaura_security_hot_bind(void);
 int osaura_security_check(uint32_t subject, uint64_t rights);
+int osaura_security_grant_as(uint32_t actor, uint32_t subject, uint64_t rights);
+int osaura_security_revoke_as(uint32_t actor, uint32_t subject, uint64_t rights);
+int osaura_security_inherit_as(uint32_t actor, uint32_t subject, uint32_t parent);
+int osaura_security_clear_as(uint32_t actor, uint32_t subject);
 int osaura_security_grant(uint32_t subject, uint64_t rights);
 int osaura_security_revoke(uint32_t subject, uint64_t rights);
 uint64_t osaura_security_snapshot(uint32_t subject);
