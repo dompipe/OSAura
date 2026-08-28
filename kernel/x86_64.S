@@ -47,6 +47,18 @@ osaura_arch_disable_interrupts:
     cli
     ret
 
+.global osaura_arch_read_cr3
+.type osaura_arch_read_cr3,@function
+osaura_arch_read_cr3:
+    movq %cr3, %rax
+    ret
+
+.global osaura_arch_write_cr3
+.type osaura_arch_write_cr3,@function
+osaura_arch_write_cr3:
+    movq %rdi, %cr3
+    ret
+
 .global osaura_isr_anchor
 osaura_isr_anchor:
 
