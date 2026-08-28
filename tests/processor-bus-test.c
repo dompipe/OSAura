@@ -31,7 +31,7 @@ static int expect(int ok, const char *label) {
 
 int main(void) {
     g_program[1] = 1u; g_program[3] = 1u; g_program[5] = 1u; g_program[8] = 1u;
-    g_awake[5] = 1u; /* foreground already runnable before the bus */
+    g_awake[5] = 1u;
 
     osaura_processor_bus_backend backend = {
         task_count, is_program, foreground_pid, is_awake, wake, sleep_task
@@ -47,8 +47,30 @@ int main(void) {
     change.change_kind = OSAURA_PROCESSOR_BUS_CHANGE_VALUE;
     change.source_pid = 3u;
 
-    if (!expect(osaura_processor_bus_publish(&change) == 1, "publish selects foreground")) return 1;
+    /* A visible/focused listener can outrank scheduler foreground for bus attention. */
+    if (!expect(osaura_processor_bus_set_priority_pid(3u) == 0, "set listener priority")) return 1;
+    if (!expect(osaura_processor_bus_priority_pid() == 3u, "listener bookmark retained")) return 1;
+    if (!expect(osaura_processor_bus_publish(&change) == 1, "priority publish")) return 1;
     const osaura_processor_bus_info *info = osaura_processor_bus_get_info();
+    if (!expect(info && info->foreground_pid == 3u, "listener becomes route bookmark")) return 1;
+    if (!expect(osaura_processor_bus_route_pid(0) == 3u &&
+                osaura_processor_bus_route_pid(1) == 1u &&
+                osaura_processor_bus_route_pid(2) == 5u &&
+                osaura_processor_bus_route_pid(3) == 8u,
+                "listener first then PID order")) return 1;
+    if (!expect(osaura_processor_bus_set_priority_pid(1u) == -2,
+                "in-flight route cannot be reprioritized")) return 1;
+    if (!expect(osaura_processor_bus_ack(3u, 0, 0, 0u) == 1, "priority pass PID1")) return 1;
+    if (!expect(osaura_processor_bus_ack(1u, 0, 0, 0u) == 1, "priority pass foreground")) return 1;
+    if (!expect(osaura_processor_bus_ack(5u, 0, 0, 0u) == 1, "priority pass PID8")) return 1;
+    if (!expect(osaura_processor_bus_ack(8u, 0, 0, 0u) == 0, "priority check complete")) return 1;
+    if (!expect(osaura_processor_bus_complete(osaura_processor_bus_get_info()->generation) == 0,
+                "priority generation complete")) return 1;
+    if (!expect(osaura_processor_bus_set_priority_pid(OSAURA_PROCESSOR_BUS_PID_NONE) == 0,
+                "clear listener priority")) return 1;
+
+    if (!expect(osaura_processor_bus_publish(&change) == 1, "publish selects foreground")) return 1;
+    info = osaura_processor_bus_get_info();
     if (!expect(info && info->foreground_pid == 5u, "foreground bookmark")) return 1;
     if (!expect(info->route_count == 4u, "route count")) return 1;
     if (!expect(osaura_processor_bus_route_pid(0) == 5u && osaura_processor_bus_route_pid(1) == 1u &&
