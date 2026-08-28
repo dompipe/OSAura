@@ -11,6 +11,10 @@ on:
       - 'host/windows/display-win32.h'
       - 'host/windows/jx11-surface-win64.c'
       - 'host/windows/jx11-surface-win64.h'
+      - 'host/windows/processor-bus-win64.c'
+      - 'host/windows/processor-bus-win64.h'
+      - 'host/windows/processor-bus-autobind-win64.c'
+      - 'host/windows/processor-bus-autobind-win64.h'
       - 'host/windows/vfs64.c'
       - 'host/windows/vfs64.h'
       - 'host/windows/runtime64.c'
@@ -21,6 +25,8 @@ on:
       - 'include/osaura/socket.h'
       - 'kernel/socket.c'
       - 'kernel/security.h'
+      - 'kernel/processor-bus.c'
+      - 'kernel/processor-bus.h'
       - 'kernel/hot-shadow.c'
       - 'kernel/hot-shadow.h'
       - 'kernel/ipc.h'
@@ -47,6 +53,10 @@ on:
       - 'host/windows/display-win32.h'
       - 'host/windows/jx11-surface-win64.c'
       - 'host/windows/jx11-surface-win64.h'
+      - 'host/windows/processor-bus-win64.c'
+      - 'host/windows/processor-bus-win64.h'
+      - 'host/windows/processor-bus-autobind-win64.c'
+      - 'host/windows/processor-bus-autobind-win64.h'
       - 'host/windows/vfs64.c'
       - 'host/windows/vfs64.h'
       - 'host/windows/runtime64.c'
@@ -57,6 +67,8 @@ on:
       - 'include/osaura/socket.h'
       - 'kernel/socket.c'
       - 'kernel/security.h'
+      - 'kernel/processor-bus.c'
+      - 'kernel/processor-bus.h'
       - 'kernel/hot-shadow.c'
       - 'kernel/hot-shadow.h'
       - 'kernel/ipc.h'
@@ -106,7 +118,7 @@ jobs:
 
       - name: Build wsjx64.exe
         shell: cmd
-        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c host\windows\jx11-surface-win64.c host\windows\vfs64.c kernel\socket.c kernel\display.c runtime\jx\jx11-display.c runtime\jx\jx11-surface.c runtime\jx\jx11-window.c runtime64.obj /Iinclude /Ikernel /Iruntime\jx /link /MACHINE:X64 Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx64.exe
+        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c host\windows\jx11-surface-win64.c host\windows\processor-bus-win64.c host\windows\processor-bus-autobind-win64.c host\windows\vfs64.c kernel\socket.c kernel\display.c kernel\processor-bus.c runtime\jx\jx11-display.c runtime\jx\jx11-surface.c runtime\jx\jx11-window.c runtime64.obj /Iinclude /Ikernel /Iruntime\jx /Ihost\windows /link /MACHINE:X64 Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx64.exe
 
       - name: Verify PE64 machine type
         shell: powershell
