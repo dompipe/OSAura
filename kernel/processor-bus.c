@@ -6,7 +6,18 @@
 static osaura_processor_bus_backend g_backend;
 static void *g_backend_context;
 static osaura_processor_bus_info g_bus;
+static uintptr_t g_response_ref[OSAURA_PROCESSOR_BUS_MAX_PROGRAMS];
+static uint32_t g_response_bytes[OSAURA_PROCESSOR_BUS_MAX_PROGRAMS];
+static uint32_t g_response_pid[OSAURA_PROCESSOR_BUS_MAX_PROGRAMS];
 static uint8_t g_initialized;
+
+static void clear_responses(void) {
+    for (uint32_t i = 0; i < OSAURA_PROCESSOR_BUS_MAX_PROGRAMS; ++i) {
+        g_response_ref[i] = (uintptr_t)0u;
+        g_response_bytes[i] = 0u;
+        g_response_pid[i] = OSAURA_PROCESSOR_BUS_PID_NONE;
+    }
+}
 
 static void clear_info(void) {
     g_bus.route_bits = 0ull;
@@ -27,6 +38,7 @@ static void clear_info(void) {
     g_bus.response_ref = (uintptr_t)0u;
     g_bus.response_bytes = 0u;
     g_bus.response_pid = OSAURA_PROCESSOR_BUS_PID_NONE;
+    clear_responses();
 }
 
 static int backend_valid(const osaura_processor_bus_backend *backend) {
@@ -150,8 +162,12 @@ int osaura_processor_bus_ack(uint32_t pid,
     if (pid != g_bus.active_pid || g_bus.route_cursor >= g_bus.route_count) return -2;
     if (response_bytes && !pointed_response) return -3;
 
-    if (changed) {
-        g_bus.changed_bits |= (uint16_t)(1u << g_bus.route_cursor);
+    if (changed && g_bus.phase == OSAURA_PROCESSOR_BUS_CHECK) {
+        uint32_t index = g_bus.route_cursor;
+        g_bus.changed_bits |= (uint16_t)(1u << index);
+        g_response_ref[index] = (uintptr_t)pointed_response;
+        g_response_bytes[index] = response_bytes;
+        g_response_pid[index] = pid;
         g_bus.response_ref = (uintptr_t)pointed_response;
         g_bus.response_bytes = response_bytes;
         g_bus.response_pid = pid;
@@ -176,6 +192,20 @@ int osaura_processor_bus_response(const void **data,
     return 0;
 }
 
+int osaura_processor_bus_response_at(uint32_t order_index,
+                                     const void **data,
+                                     uint32_t *bytes,
+                                     uint32_t *response_pid) {
+    if (!g_initialized || g_bus.phase != OSAURA_PROCESSOR_BUS_CHECK) return -1;
+    if (g_bus.active_pid != OSAURA_PROCESSOR_BUS_PID_NONE || g_bus.route_cursor < g_bus.route_count) return -2;
+    if (order_index >= g_bus.route_count) return -3;
+    if ((g_bus.changed_bits & (uint16_t)(1u << order_index)) == 0u) return 0;
+    if (data) *data = (const void *)g_response_ref[order_index];
+    if (bytes) *bytes = g_response_bytes[order_index];
+    if (response_pid) *response_pid = g_response_pid[order_index];
+    return 1;
+}
+
 int osaura_processor_bus_publish_return(const void *pointed_data, uint32_t bytes) {
     if (!g_initialized || g_bus.phase != OSAURA_PROCESSOR_BUS_CHECK) return -1;
     if (g_bus.active_pid != OSAURA_PROCESSOR_BUS_PID_NONE || g_bus.route_cursor < g_bus.route_count) return -2;
@@ -184,6 +214,7 @@ int osaura_processor_bus_publish_return(const void *pointed_data, uint32_t bytes
     g_bus.phase = OSAURA_PROCESSOR_BUS_RETURN;
     g_bus.route_cursor = 0u;
     g_bus.changed_bits = 0u;
+    clear_responses();
     g_bus.response_ref = (uintptr_t)pointed_data;
     g_bus.response_bytes = bytes;
     g_bus.response_pid = OSAURA_PROCESSOR_BUS_PID_NONE;
