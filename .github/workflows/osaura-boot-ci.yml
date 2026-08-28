@@ -25,7 +25,7 @@ jobs:
       - name: Install UEFI image dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gnu-efi mtools dosfstools
+          sudo apt-get install -y gnu-efi mtools dosfstools qemu-system-x86 ovmf
 
       - name: Build BOOTX64.EFI and native kernel
         run: make efi
@@ -47,6 +47,40 @@ jobs:
           mdir -i build/osaura.img ::/EFI/BOOT
           mdir -i build/osaura.img ::/OSAURA
 
+      - name: Boot native kernel under OVMF
+        run: |
+          OVMF_CODE=""
+          OVMF_VARS=""
+          for f in /usr/share/OVMF/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE_4M.fd; do
+            if [ -f "$f" ]; then OVMF_CODE="$f"; break; fi
+          done
+          for f in /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS_4M.fd; do
+            if [ -f "$f" ]; then OVMF_VARS="$f"; break; fi
+          done
+          test -n "$OVMF_CODE"
+          test -n "$OVMF_VARS"
+          cp "$OVMF_VARS" build/OVMF_VARS.fd
+          set +e
+          timeout 12s qemu-system-x86_64 \
+            -machine q35 \
+            -m 256M \
+            -vga std \
+            -display none \
+            -serial stdio \
+            -monitor none \
+            -no-reboot \
+            -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
+            -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
+            -drive format=raw,file=build/osaura.img \
+            > build/qemu.log 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then cat build/qemu.log; exit "$rc"; fi
+          cat build/qemu.log
+          grep -q 'OSAURA KERNEL 0.2-DEV' build/qemu.log
+          grep -q 'UEFI BOOT SERVICES: EXITED' build/qemu.log
+          grep -q 'OSAURA>' build/qemu.log
+
       - name: Upload boot artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -54,3 +88,4 @@ jobs:
           path: |
             build/BOOTX64.EFI
             build/osaura.img
+            build/qemu.log
