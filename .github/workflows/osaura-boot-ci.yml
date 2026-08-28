@@ -7,6 +7,7 @@ on:
       - 'kernel/**'
       - 'runtime/**'
       - 'scripts/make-image.sh'
+      - 'scripts/make-jx-runtime-book.py'
       - 'Makefile'
       - '.github/workflows/osaura-boot-ci.yml'
   pull_request:
@@ -15,6 +16,7 @@ on:
       - 'kernel/**'
       - 'runtime/**'
       - 'scripts/make-image.sh'
+      - 'scripts/make-jx-runtime-book.py'
       - 'Makefile'
       - '.github/workflows/osaura-boot-ci.yml'
 
@@ -45,9 +47,12 @@ jobs:
           nm build/kernel.o | grep -F 'osaura_ticks'
           nm build/mm.o | grep -F 'osaura_vm_init'
           nm build/scheduler.o | grep -F 'osaura_scheduler_on_timer'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_load_book'
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_task'
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_bus_ticks'
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_bus_collects'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_bag_checkpoints'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_channel_deliveries'
           nm build/x86_64.o | grep -F 'osaura_arch_write_cr3'
           nm build/x86_64.o | grep -F 'osaura_isr_32'
           nm build/x86_64.o | grep -F 'osaura_isr_33'
@@ -61,10 +66,14 @@ jobs:
       - name: Validate artifacts
         run: |
           test -s build/BOOTX64.EFI
+          test -s build/runtime.64B
           test -s build/osaura.img
           file build/BOOTX64.EFI
           mdir -i build/osaura.img ::/EFI/BOOT
           mdir -i build/osaura.img ::/OSAURA
+          rm -f build/runtime-from-image.64B
+          mcopy -i build/osaura.img ::/OSAURA/runtime.64B build/runtime-from-image.64B
+          cmp build/runtime.64B build/runtime-from-image.64B
 
       - name: Boot preemptive JX runtime under OVMF
         run: |
@@ -122,11 +131,15 @@ jobs:
           fi
 
           # Give the scheduler several complete round-robin quanta. The JX
-          # service announces only after both stable applied bus entries have
-          # executed successfully inside task 1.
+          # service announces only after the disk-loaded Book, Bag checkpoint,
+          # channel delivery and both applied bus entrypoints are all live.
           jx_seen=0
           for _ in $(seq 1 60); do
-            if grep -Fq 'JX BUS.COLLECT: ACTIVE' build/qemu.log; then jx_seen=1; break; fi
+            if grep -Fq 'JX CHANNEL SWITCH: ACTIVE' build/qemu.log && \
+               grep -Fq 'JX BUS.COLLECT: ACTIVE' build/qemu.log; then
+              jx_seen=1
+              break
+            fi
             sleep 0.1
           done
 
@@ -194,7 +207,7 @@ jobs:
 
           cat build/qemu.log
           if [ "$jx_seen" -ne 1 ] || [ "$help_seen" -ne 1 ] || [ "$vm_seen" -ne 1 ] || [ "$tasks_seen" -ne 1 ] || [ "$alloc_seen" -ne 1 ]; then
-            echo 'JX runtime/scheduler/VM/IRQ gate failed; last QEMU interrupt trace lines:'
+            echo 'JX 64B/Bag/channel scheduler gate failed; last QEMU interrupt trace lines:'
             tail -n 200 build/qemu-debug.log || true
           fi
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then exit "$rc"; fi
@@ -211,6 +224,12 @@ jobs:
           grep -Fq 'SCHEDULER: READY' build/qemu.log
           grep -Fq 'PIT IRQ0: ACTIVE' build/qemu.log
           grep -Fq 'PS2 IRQ1: ACTIVE' build/qemu.log
+          grep -Fq 'JX 64B: VERIFIED' build/qemu.log
+          grep -Fq 'JX 64B CODE/APPLIED-BUS: LOADED' build/qemu.log
+          grep -Fq 'JX BAG: ACTIVE' build/qemu.log
+          grep -Fq 'JX BAG CHECKPOINT: ACTIVE' build/qemu.log
+          grep -Fq 'JX CHANNEL BUS: ACTIVE' build/qemu.log
+          grep -Fq 'JX CHANNEL SWITCH: ACTIVE' build/qemu.log
           grep -Fq 'JX RUNTIME: ACTIVE' build/qemu.log
           grep -Fq 'JX APPLIED ABI: 1' build/qemu.log
           grep -Fq 'JX PAGE: 7F0001 7F0002' build/qemu.log
@@ -230,6 +249,7 @@ jobs:
           name: osaura-uefi-x86_64
           path: |
             build/BOOTX64.EFI
+            build/runtime.64B
             build/osaura.img
             build/qemu.log
             build/qemu-debug.log
