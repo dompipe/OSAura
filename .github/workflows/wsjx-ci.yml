@@ -11,6 +11,7 @@ on:
       - 'host/windows/display-win32.h'
       - 'host/windows/jx11-surface-win64.c'
       - 'host/windows/jx11-surface-win64.h'
+      - 'host/windows/jx11-listener-events-autoinit-win64.c'
       - 'host/windows/processor-bus-win64.c'
       - 'host/windows/processor-bus-win64.h'
       - 'host/windows/processor-bus-autobind-win64.c'
@@ -42,6 +43,8 @@ on:
       - 'runtime/jx/jx11-surface.h'
       - 'runtime/jx/jx11-window.c'
       - 'runtime/jx/jx11-window.h'
+      - 'runtime/jx/jx11-listener-events.c'
+      - 'runtime/jx/jx11-listener-events.h'
       - '.github/workflows/wsjx-ci.yml'
   pull_request:
     paths:
@@ -53,6 +56,7 @@ on:
       - 'host/windows/display-win32.h'
       - 'host/windows/jx11-surface-win64.c'
       - 'host/windows/jx11-surface-win64.h'
+      - 'host/windows/jx11-listener-events-autoinit-win64.c'
       - 'host/windows/processor-bus-win64.c'
       - 'host/windows/processor-bus-win64.h'
       - 'host/windows/processor-bus-autobind-win64.c'
@@ -84,6 +88,8 @@ on:
       - 'runtime/jx/jx11-surface.h'
       - 'runtime/jx/jx11-window.c'
       - 'runtime/jx/jx11-window.h'
+      - 'runtime/jx/jx11-listener-events.c'
+      - 'runtime/jx/jx11-listener-events.h'
       - '.github/workflows/wsjx-ci.yml'
 
 jobs:
@@ -118,7 +124,7 @@ jobs:
 
       - name: Build wsjx64.exe
         shell: cmd
-        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c host\windows\jx11-surface-win64.c host\windows\processor-bus-win64.c host\windows\processor-bus-autobind-win64.c host\windows\vfs64.c kernel\socket.c kernel\display.c kernel\processor-bus.c runtime\jx\jx11-display.c runtime\jx\jx11-surface.c runtime\jx\jx11-window.c runtime64.obj /Iinclude /Ikernel /Iruntime\jx /Ihost\windows /link /MACHINE:X64 Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx64.exe
+        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c host\windows\jx11-surface-win64.c host\windows\jx11-listener-events-autoinit-win64.c host\windows\processor-bus-win64.c host\windows\processor-bus-autobind-win64.c host\windows\vfs64.c kernel\socket.c kernel\display.c kernel\processor-bus.c runtime\jx\jx11-display.c runtime\jx\jx11-surface.c runtime\jx\jx11-window.c runtime\jx\jx11-listener-events.c runtime64.obj /Iinclude /Ikernel /Iruntime\jx /Ihost\windows /link /MACHINE:X64 Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx64.exe
 
       - name: Verify PE64 machine type
         shell: powershell
