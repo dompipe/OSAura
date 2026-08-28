@@ -162,7 +162,7 @@ osaura_isr_common:
 osaura_gdt:
     .quad 0x0000000000000000
     .quad 0x00af9a000000ffff
-    .quad 0x00af92000000ffff
+    .quad 0x00cf92000000ffff
 
 .align 8
 .global osaura_isr_table
