@@ -1,4 +1,4 @@
-name: WSJX Windows CI
+name: WSJX64 Windows CI
 
 on:
   push:
@@ -14,7 +14,6 @@ on:
       - 'kernel/security.h'
       - 'kernel/display.c'
       - 'kernel/display.h'
-      - 'kernel/boot-info.h'
       - 'runtime/jx/jx11-display.c'
       - 'runtime/jx/jx11-display.h'
       - '.github/workflows/wsjx-ci.yml'
@@ -31,28 +30,36 @@ on:
       - 'kernel/security.h'
       - 'kernel/display.c'
       - 'kernel/display.h'
-      - 'kernel/boot-info.h'
       - 'runtime/jx/jx11-display.c'
       - 'runtime/jx/jx11-display.h'
       - '.github/workflows/wsjx-ci.yml'
 
 jobs:
-  wsjx:
+  wsjx64:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Initialize MSVC developer environment
+      - name: Initialize x64 MSVC developer environment
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
-      - name: Build wsjx.exe
+      - name: Build wsjx64.exe
         shell: cmd
-        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c kernel\socket.c kernel\display.c runtime\jx\jx11-display.c /Iinclude /Ikernel /Iruntime\jx /link Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx.exe
+        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c kernel\socket.c kernel\display.c runtime\jx\jx11-display.c /Iinclude /Ikernel /Iruntime\jx /link /MACHINE:X64 Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx64.exe
 
-      - name: Smoke test WSJX shell and JX11 display
+      - name: Verify PE64 machine type
+        shell: powershell
+        run: |
+          $headers = dumpbin /headers .\wsjx64.exe | Out-String
+          if ($headers -notmatch 'machine \(x64\)') { throw 'wsjx64.exe is not PE32+ x64' }
+
+      - name: Smoke test WSJX64 shell and JX11 display
         shell: powershell
         run: |
           @"
+          PLATFORM
           STATUS
           CAPS
           MODE JXL
@@ -61,11 +68,15 @@ jobs:
           DISPLAY
           DISPLAY TEST
           EXIT
-          "@ | .\wsjx.exe | Tee-Object -FilePath wsjx-smoke.txt
-          $text = Get-Content wsjx-smoke.txt -Raw
-          if ($text -notmatch 'WSJX - WINDOWS SUBSYSTEM FOR JX') { throw 'banner missing' }
+          "@ | .\wsjx64.exe | Tee-Object -FilePath wsjx64-smoke.txt
+          $text = Get-Content wsjx64-smoke.txt -Raw
+          if ($text -notmatch 'WSJX64 - WINDOWS SUBSYSTEM FOR JX64') { throw 'WSJX64 banner missing' }
+          if ($text -notmatch 'PLATFORM: WSJX64 / AMD64') { throw 'Win64 platform contract missing' }
+          if ($text -notmatch 'POINTER WIDTH: 64') { throw '64-bit pointer contract missing' }
+          if ($text -notmatch 'USER64: WINDOWS USER API') { throw 'USER64 backend missing' }
+          if ($text -notmatch 'GDI64: WINDOWS GDI API') { throw 'GDI64 backend missing' }
           if ($text -notmatch 'MODE: JXL') { throw 'JXL mode switch missing' }
-          if ($text -notmatch 'JX SOCKET: PASS') { throw 'Winsock path failed' }
-          if ($text -notmatch 'JX11 DISPLAY: 1024x768') { throw 'JX11 geometry missing' }
-          if ($text -notmatch 'JX11 DISPLAY TEST: PASS') { throw 'JX11 drawing path failed' }
+          if ($text -notmatch 'JX SOCKET: PASS') { throw 'Winsock64 path failed' }
+          if ($text -notmatch 'JX11 DISPLAY: 1024x768') { throw 'JX11 display backend missing' }
+          if ($text -notmatch 'JX11 DISPLAY TEST: PASS') { throw 'JX11 draw path failed' }
           if ($text -notmatch 'F0-FF: RESERVED') { throw 'reserved opcode invariant missing' }
