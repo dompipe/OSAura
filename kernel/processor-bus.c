@@ -9,6 +9,7 @@ static osaura_processor_bus_info g_bus;
 static uintptr_t g_response_ref[OSAURA_PROCESSOR_BUS_MAX_PROGRAMS];
 static uint32_t g_response_bytes[OSAURA_PROCESSOR_BUS_MAX_PROGRAMS];
 static uint32_t g_response_pid[OSAURA_PROCESSOR_BUS_MAX_PROGRAMS];
+static uint32_t g_priority_pid = OSAURA_PROCESSOR_BUS_PID_NONE;
 static uint8_t g_initialized;
 
 static void clear_responses(void) {
@@ -62,20 +63,28 @@ static int route_append(uint32_t pid) {
     return 0;
 }
 
+static int live_program(uint32_t pid, uint32_t count) {
+    return pid < count && pid < 16u && g_backend.is_program(pid, g_backend_context);
+}
+
 static int build_route(void) {
     g_bus.route_bits = 0ull;
     g_bus.route_count = 0u;
     g_bus.route_cursor = 0u;
     g_bus.foreground_pid = OSAURA_PROCESSOR_BUS_PID_NONE;
+
     uint32_t count = g_backend.task_count(g_backend_context);
     if (count > OSAURA_PROCESSOR_BUS_MAX_PROGRAMS) count = OSAURA_PROCESSOR_BUS_MAX_PROGRAMS;
-    uint32_t foreground = g_backend.foreground_pid(g_backend_context);
-    if (foreground < count && foreground < 16u && g_backend.is_program(foreground, g_backend_context)) {
-        if (route_append(foreground) != 0) return -1;
-        g_bus.foreground_pid = foreground;
+
+    uint32_t scheduler_foreground = g_backend.foreground_pid(g_backend_context);
+    uint32_t first = live_program(g_priority_pid, count) ? g_priority_pid : scheduler_foreground;
+    if (live_program(first, count)) {
+        if (route_append(first) != 0) return -1;
+        g_bus.foreground_pid = first;
     }
+
     for (uint32_t pid = 0; pid < count; ++pid) {
-        if (pid >= 16u || pid == foreground) continue;
+        if (pid >= 16u || pid == first) continue;
         if (!g_backend.is_program(pid, g_backend_context) || route_contains(pid)) continue;
         if (route_append(pid) != 0) return -1;
     }
@@ -104,6 +113,7 @@ int osaura_processor_bus_init(const osaura_processor_bus_backend *backend, void 
     g_backend = *backend;
     g_backend_context = context;
     g_bus.generation = 0ull;
+    g_priority_pid = OSAURA_PROCESSOR_BUS_PID_NONE;
     clear_info();
     g_initialized = 1u;
     return 0;
@@ -113,6 +123,18 @@ void osaura_processor_bus_reset(void) {
     uint64_t generation = g_bus.generation;
     clear_info();
     g_bus.generation = generation;
+}
+
+int osaura_processor_bus_set_priority_pid(uint32_t pid) {
+    if (!g_initialized) return -1;
+    if (g_bus.phase != OSAURA_PROCESSOR_BUS_IDLE) return -2;
+    if (pid != OSAURA_PROCESSOR_BUS_PID_NONE && pid >= OSAURA_PROCESSOR_BUS_MAX_PROGRAMS) return -3;
+    g_priority_pid = pid;
+    return 0;
+}
+
+uint32_t osaura_processor_bus_priority_pid(void) {
+    return g_initialized ? g_priority_pid : OSAURA_PROCESSOR_BUS_PID_NONE;
 }
 
 int osaura_processor_bus_publish(const osaura_processor_bus_change *change) {
