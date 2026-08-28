@@ -7,9 +7,16 @@ on:
       - 'host/windows/security-host.c'
       - 'host/windows/socket-winsock.c'
       - 'host/windows/socket-winsock.h'
+      - 'host/windows/display-win32.c'
+      - 'host/windows/display-win32.h'
       - 'include/osaura/socket.h'
       - 'kernel/socket.c'
       - 'kernel/security.h'
+      - 'kernel/display.c'
+      - 'kernel/display.h'
+      - 'kernel/boot-info.h'
+      - 'runtime/jx/jx11-display.c'
+      - 'runtime/jx/jx11-display.h'
       - '.github/workflows/wsjx-ci.yml'
   pull_request:
     paths:
@@ -17,9 +24,16 @@ on:
       - 'host/windows/security-host.c'
       - 'host/windows/socket-winsock.c'
       - 'host/windows/socket-winsock.h'
+      - 'host/windows/display-win32.c'
+      - 'host/windows/display-win32.h'
       - 'include/osaura/socket.h'
       - 'kernel/socket.c'
       - 'kernel/security.h'
+      - 'kernel/display.c'
+      - 'kernel/display.h'
+      - 'kernel/boot-info.h'
+      - 'runtime/jx/jx11-display.c'
+      - 'runtime/jx/jx11-display.h'
       - '.github/workflows/wsjx-ci.yml'
 
 jobs:
@@ -33,9 +47,9 @@ jobs:
 
       - name: Build wsjx.exe
         shell: cmd
-        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c kernel\socket.c /Iinclude /Ikernel /link Ws2_32.lib /OUT:wsjx.exe
+        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c kernel\socket.c kernel\display.c runtime\jx\jx11-display.c /Iinclude /Ikernel /Iruntime\jx /link Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx.exe
 
-      - name: Smoke test WSJX shell
+      - name: Smoke test WSJX shell and JX11 display
         shell: powershell
         run: |
           @"
@@ -44,10 +58,14 @@ jobs:
           MODE JXL
           STATUS
           SOCKET
+          DISPLAY
+          DISPLAY TEST
           EXIT
           "@ | .\wsjx.exe | Tee-Object -FilePath wsjx-smoke.txt
           $text = Get-Content wsjx-smoke.txt -Raw
           if ($text -notmatch 'WSJX - WINDOWS SUBSYSTEM FOR JX') { throw 'banner missing' }
           if ($text -notmatch 'MODE: JXL') { throw 'JXL mode switch missing' }
           if ($text -notmatch 'JX SOCKET: PASS') { throw 'Winsock path failed' }
+          if ($text -notmatch 'JX11 DISPLAY: 1024x768') { throw 'JX11 geometry missing' }
+          if ($text -notmatch 'JX11 DISPLAY TEST: PASS') { throw 'JX11 drawing path failed' }
           if ($text -notmatch 'F0-FF: RESERVED') { throw 'reserved opcode invariant missing' }
