@@ -37,6 +37,7 @@ jobs:
           test -s build/x86_64.o
           test -s build/bootx64.so
           nm build/kernel.o | grep -F 'osaura_kernel_main'
+          nm build/kernel.o | grep -F 'osaura_ticks'
           nm build/x86_64.o | grep -F 'osaura_isr_32'
           nm build/x86_64.o | grep -F 'osaura_isr_33'
           objdump -h build/bootx64.so > build/sections.txt
@@ -68,7 +69,7 @@ jobs:
           fi
 
           cp "$OVMF_VARS" build/OVMF_VARS.fd
-          rm -f build/qemu-monitor
+          rm -f build/qemu-monitor build/qemu-debug.log
 
           set +e
           timeout 12s qemu-system-x86_64 \
@@ -78,6 +79,8 @@ jobs:
             -display none \
             -serial stdio \
             -monitor unix:build/qemu-monitor,server=on,wait=off \
+            -d int,cpu_reset \
+            -D build/qemu-debug.log \
             -no-reboot \
             -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
             -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
@@ -100,6 +103,8 @@ jobs:
           if [ "$prompt_seen" -ne 1 ]; then
             echo 'OSAura prompt was not reached; early serial log follows:'
             cat build/qemu.log || true
+            echo 'Last QEMU interrupt trace lines:'
+            tail -n 120 build/qemu-debug.log || true
             printf 'quit\n' | socat - UNIX-CONNECT:build/qemu-monitor || true
             wait "$qemu_pid" || true
             exit 1
@@ -126,6 +131,10 @@ jobs:
           set -e
 
           cat build/qemu.log
+          if [ "$help_seen" -ne 1 ]; then
+            echo 'Keyboard IRQ command path failed; last QEMU interrupt trace lines:'
+            tail -n 120 build/qemu-debug.log || true
+          fi
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then exit "$rc"; fi
           test "$help_seen" -eq 1
           grep -Fq 'OSAURA KERNEL 0.3-DEV' build/qemu.log
@@ -146,3 +155,4 @@ jobs:
             build/BOOTX64.EFI
             build/osaura.img
             build/qemu.log
+            build/qemu-debug.log
