@@ -5,7 +5,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <limits.h>
 
 #pragma comment(lib, "Ws2_32.lib")
 
@@ -45,7 +47,7 @@ static int allocate(uint32_t subject, SOCKET value, uint32_t *id_out) {
 }
 
 static int fill_addr(const osaura_socket_request *r, struct sockaddr_in *addr) {
-    if (!r || !addr || r->family != 0u && r->family != OSAURA_SOCKET_AF_IPV4) return -22;
+    if (!r || !addr || (r->family != 0u && r->family != OSAURA_SOCKET_AF_IPV4)) return -22;
     addr->sin_family = AF_INET;
     addr->sin_port = htons(r->port);
     addr->sin_addr.s_addr = htonl(r->address_ipv4);
@@ -118,7 +120,7 @@ static int win_accept(void *context, osaura_socket_request *r) {
 static int win_send(void *context, osaura_socket_request *r) {
     (void)context;
     osaura_win_socket *s = r ? lookup(r->subject, r->socket) : 0;
-    if (!s || !r->const_buffer || r->bytes == 0u) return -1;
+    if (!s || !r->const_buffer || r->bytes == 0u || r->bytes > (uint32_t)INT_MAX) return -1;
     int n = send(s->value, (const char *)r->const_buffer, (int)r->bytes, 0);
     if (n == SOCKET_ERROR) return -WSAGetLastError();
     r->transferred = (uint32_t)n;
@@ -128,7 +130,7 @@ static int win_send(void *context, osaura_socket_request *r) {
 static int win_recv(void *context, osaura_socket_request *r) {
     (void)context;
     osaura_win_socket *s = r ? lookup(r->subject, r->socket) : 0;
-    if (!s || !r->buffer || r->bytes == 0u) return -1;
+    if (!s || !r->buffer || r->bytes == 0u || r->bytes > (uint32_t)INT_MAX) return -1;
     int n = recv(s->value, (char *)r->buffer, (int)r->bytes, 0);
     if (n == SOCKET_ERROR) return -WSAGetLastError();
     r->transferred = (uint32_t)n;
