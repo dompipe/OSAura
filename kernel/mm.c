@@ -53,6 +53,8 @@ static int critical_addresses_fit(const osaura_boot_info *boot) {
     if (boot) {
         if (!osaura_vm_contains_phys(boot->framebuffer_base, boot->framebuffer_size)) return 0;
         if (!osaura_vm_contains_phys(boot->memory_map, boot->memory_map_size)) return 0;
+        if (!boot->jx_book || !boot->jx_book_size) return 0;
+        if (!osaura_vm_contains_phys(boot->jx_book, boot->jx_book_size)) return 0;
     }
     return 1;
 }
