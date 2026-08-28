@@ -69,7 +69,7 @@ def stable_manifest(sections: dict[str, bytes], profile: str) -> tuple[bytes, st
         "arch": "x86_64",
         "target": "osaura",
         "book": f"runtime-{profile}",
-        "compiler": "osaura-bootstrap/3",
+        "compiler": "osaura-bootstrap/2",
         "content_sha256": content_sha,
         "sections": rows,
     }
