@@ -4,6 +4,7 @@ LOADER_OBJ := $(BUILD)/loader.o
 KERNEL_OBJ := $(BUILD)/kernel.o
 MM_OBJ := $(BUILD)/mm.o
 SCHED_OBJ := $(BUILD)/scheduler.o
+SCHED_BUS_INIT_OBJ := $(BUILD)/scheduler-bus-init.o
 USB_OBJ := $(BUILD)/usb.o
 USB_HOT_OBJ := $(BUILD)/usb-hot.o
 E1000_OBJ := $(BUILD)/e1000.o
@@ -22,6 +23,7 @@ STORAGE_OBJ := $(BUILD)/storage.o
 IPC_OBJ := $(BUILD)/ipc.o
 PROCESSOR_BUS_OBJ := $(BUILD)/processor-bus.o
 PROCESSOR_BUS_SCHED_OBJ := $(BUILD)/processor-bus-scheduler.o
+JX_BAG_BUS_OBJ := $(BUILD)/jx-bag-bus.o
 JX_RUNTIME_OBJ := $(BUILD)/jx-runtime.o
 JX_LIVE_OBJ := $(BUILD)/jx-live.o
 ARCH_OBJ := $(BUILD)/x86_64.o
@@ -65,6 +67,9 @@ $(MM_OBJ): kernel/mm.c kernel/mm.h kernel/boot-info.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(SCHED_OBJ): kernel/scheduler.c kernel/scheduler.h kernel/security.h kernel/security-policy.h runtime/jx/jx-runtime.h | $(BUILD)
+	$(CC) $(KERNEL_CFLAGS) -Dosaura_scheduler_init=osaura_scheduler_core_init -c $< -o $@
+
+$(SCHED_BUS_INIT_OBJ): kernel/scheduler-bus-init.c kernel/scheduler.h kernel/processor-bus-scheduler.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(USB_OBJ): kernel/usb.c kernel/usb.h | $(BUILD)
@@ -121,6 +126,9 @@ $(PROCESSOR_BUS_OBJ): kernel/processor-bus.c kernel/processor-bus.h | $(BUILD)
 $(PROCESSOR_BUS_SCHED_OBJ): kernel/processor-bus-scheduler.c kernel/processor-bus-scheduler.h kernel/processor-bus.h kernel/scheduler.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
+$(JX_BAG_BUS_OBJ): runtime/jx/jx-bag-bus.c runtime/jx/jx-bag-bus.h kernel/processor-bus.h | $(BUILD)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
 $(JX_RUNTIME_OBJ): runtime/jx/jx-runtime.c runtime/jx/jx-live-tail.c runtime/jx/jx-runtime.h | $(BUILD)
 	cat runtime/jx/jx-runtime.c runtime/jx/jx-live-tail.c | \
 		$(CC) $(KERNEL_CFLAGS) -Dosaura_jx_runtime_task=osaura_jx_runtime_task_legacy \
@@ -132,8 +140,8 @@ $(JX_LIVE_OBJ): runtime/jx/jx-live.c runtime/jx/jx-runtime.h kernel/security.h |
 $(ARCH_OBJ): kernel/x86_64.S | $(BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
 
-$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(USB_HOT_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(WIFI_HOT_OBJ) $(CLOCK_HOT_OBJ) $(MEMORY_HOT_OBJ) $(TASK_HOT_OBJ) $(VFS_OBJ) $(BOOK_HOT_OBJ) $(SECURITY_OBJ) $(SECURITY_POLICY_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(PROCESSOR_BUS_OBJ) $(PROCESSOR_BUS_SCHED_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
-	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(USB_HOT_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(WIFI_HOT_OBJ) $(CLOCK_HOT_OBJ) $(MEMORY_HOT_OBJ) $(TASK_HOT_OBJ) $(VFS_OBJ) $(BOOK_HOT_OBJ) $(SECURITY_OBJ) $(SECURITY_POLICY_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(PROCESSOR_BUS_OBJ) $(PROCESSOR_BUS_SCHED_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
+$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(SCHED_BUS_INIT_OBJ) $(USB_OBJ) $(USB_HOT_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(WIFI_HOT_OBJ) $(CLOCK_HOT_OBJ) $(MEMORY_HOT_OBJ) $(TASK_HOT_OBJ) $(VFS_OBJ) $(BOOK_HOT_OBJ) $(SECURITY_OBJ) $(SECURITY_POLICY_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(PROCESSOR_BUS_OBJ) $(PROCESSOR_BUS_SCHED_OBJ) $(JX_BAG_BUS_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
+	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(SCHED_BUS_INIT_OBJ) $(USB_OBJ) $(USB_HOT_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(WIFI_HOT_OBJ) $(CLOCK_HOT_OBJ) $(MEMORY_HOT_OBJ) $(TASK_HOT_OBJ) $(VFS_OBJ) $(BOOK_HOT_OBJ) $(SECURITY_OBJ) $(SECURITY_POLICY_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(PROCESSOR_BUS_OBJ) $(PROCESSOR_BUS_SCHED_OBJ) $(JX_BAG_BUS_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
 
 $(EFI): $(SO)
 	$(OBJCOPY) \
