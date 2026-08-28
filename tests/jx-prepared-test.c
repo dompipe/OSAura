@@ -71,13 +71,15 @@ static void test_vm(void) {
 static void test_book(void) {
     uint8_t book[4096], header[48], code[16];
     const uint8_t manifest[]="{}", semantic[]="{}", prepared[]="{}";
-    size_t bp=0u, cp=0u;
+    const char *code_name="CODE/program.jxl";
+    size_t bp=0u, cp=0u, code_payload_offset;
     osaura_jx64b_admission a;
     memset(header,0,sizeof header); memcpy(header,"JX64B001",8u); wr16(header+8u,1u); wr16(header+10u,0u); wr32(header+12u,3u);
     code[cp++]=0x01u; cp+=put_int(code+cp,42); code[cp++]=0x04u; code[cp++]=0x1bu;
     bp+=zip_local(book+bp,"JX64/header.bin",header,sizeof header);
     bp+=zip_local(book+bp,"JX64/manifest.json",manifest,sizeof manifest-1u);
-    bp+=zip_local(book+bp,"CODE/program.jxl",code,cp);
+    code_payload_offset=bp+30u+strlen(code_name);
+    bp+=zip_local(book+bp,code_name,code,cp);
     bp+=zip_local(book+bp,"META/prepared.json",prepared,sizeof prepared-1u);
     bp+=zip_local(book+bp,"META/semantic.json",semantic,sizeof semantic-1u);
     assert(osaura_jx64b_admit(book,bp,0,0,0,&a)==OSAURA_JXL_OK);
@@ -85,7 +87,7 @@ static void test_book(void) {
     assert(a.code_bytes==cp && memcmp(a.code,code,cp)==0);
     assert(osaura_jx64b_admit(book,bp,1,0,0,&a)==OSAURA_JXL_ETRUST);
     assert(osaura_jx64b_admit(book,bp,1,trust_ok,0,&a)==OSAURA_JXL_OK && a.trusted==1u);
-    book[40u]^=1u;
+    book[code_payload_offset]^=1u;
     assert(osaura_jx64b_admit(book,bp,0,0,0,&a)==OSAURA_JXL_ECRC);
 }
 
