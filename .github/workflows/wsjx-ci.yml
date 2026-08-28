@@ -79,7 +79,7 @@ jobs:
 
       - name: Build WSJX64 hot conformance test
         shell: cmd
-        run: cl /nologo /W4 /WX tests\wsjx64-hot-test.c host\windows\hot64.c host\windows\security-host.c kernel\hot-shadow.c runtime64.obj /Iinclude /Ikernel /Ihost\windows /link /MACHINE:X64 /OUT:wsjx64-hot-test.exe
+        run: cl /nologo /W4 /WX /DOSAURA_HOT_HOSTED tests\wsjx64-hot-test.c host\windows\hot64.c host\windows\security-host.c kernel\hot-shadow.c runtime64.obj /Iinclude /Ikernel /Ihost\windows /link /MACHINE:X64 /OUT:wsjx64-hot-test.exe
 
       - name: Run WSJX64 hot conformance test
         shell: powershell
