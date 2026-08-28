@@ -4,7 +4,9 @@
 #include "clock-hot.h"
 #include "memory-hot.h"
 #include "task-hot.h"
+#include "vfs.h"
 #include "book-hot.h"
+#include "security.h"
 
 #include <stdint.h>
 
@@ -18,12 +20,18 @@ void osaura_hot_init(void) {
         g_hot.slot[i].hits = 0u;
     }
     g_hot_initialized = 1u;
+
+    osaura_vfs_init();
+    osaura_security_init();
+
     (void)osaura_usb_hot_bind();
     (void)osaura_wifi_hot_bind();
     (void)osaura_clock_hot_bind();
     (void)osaura_memory_hot_bind();
     (void)osaura_task_hot_bind();
+    (void)osaura_vfs_hot_bind();
     (void)osaura_book_hot_bind();
+    (void)osaura_security_hot_bind();
 }
 
 static void ensure_hot_init(void) {
