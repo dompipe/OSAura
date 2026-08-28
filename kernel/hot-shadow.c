@@ -15,13 +15,17 @@
 static osaura_shadow_table g_hot;
 static uint8_t g_hot_initialized;
 
-void osaura_hot_init(void) {
+void osaura_hot_reset(void) {
     for (uint32_t i = 0u; i < OSAURA_HOT_ENTRY_COUNT; ++i) {
         g_hot.slot[i].fn = 0;
         g_hot.slot[i].context = 0;
         g_hot.slot[i].hits = 0u;
     }
     g_hot_initialized = 1u;
+}
+
+void osaura_hot_init(void) {
+    osaura_hot_reset();
 
     /* State owners initialize before their hot banks are admitted. */
     osaura_security_init();
