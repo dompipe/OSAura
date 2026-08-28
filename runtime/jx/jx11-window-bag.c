@@ -76,8 +76,17 @@ int osaura_jx11_window_bag_unbind_as(uint32_t owner_subject, uint32_t window_id)
 }
 
 int osaura_jx11_window_bag_get(uint32_t window_id, osaura_jx11_window_bag_view *out) {
+    osaura_jx11_window_info info = {0};
     if (!g_ready || !out || window_id >= OSAURA_JX11_WINDOW_MAX) return -1;
     if (!g_view[window_id].bound) return 0;
+
+    /* Window slots are reusable. Never let an old borrowed Bag survive reuse. */
+    if (osaura_jx11_window_get_info(window_id, &info) != 0 ||
+        info.owner_subject != g_view[window_id].owner_subject) {
+        memset(&g_view[window_id], 0, sizeof g_view[window_id]);
+        return 0;
+    }
+
     *out = g_view[window_id];
     return 1;
 }
