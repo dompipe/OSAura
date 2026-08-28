@@ -55,7 +55,8 @@ int main(void) {
     osaura_jx11_surface_fill child_fill = {0u, 0u, 10u, 8u, 0xff00ff00u};
     if (osaura_jx11_surface_fill_as(1u, root_info.surface_id, &root_fill) != 0) return fail("root fill");
     if (osaura_jx11_surface_fill_as(1u, child_info.surface_id, &child_fill) != 0) return fail("child fill");
-    if (osaura_jx11_window_compose() != 0) return fail("compose");
+    if (osaura_jx11_window_compose() != 1) return fail("compose damaged frame");
+    if (osaura_jx11_window_compose() != 0) return fail("compose clean frame");
 
     if (osaura_jx11_window_hit_test(10, 9) != child) return fail("child hit test");
     if (osaura_jx11_window_pointer(10, 9, 1u, 1u, 1) != 0) return fail("pointer down");
