@@ -80,7 +80,6 @@ static int shadow_writen(void *context, void *opaque) {
     return driver->write(driver->context, request->lba, request->blocks, request->const_buffer);
 }
 
-/* Reserved filesystem shadows. They remain stable while VFS/extent binding is added. */
 static int shadow_filesystem_unbound(void *context, void *opaque) {
     (void)context;
     (void)opaque;
@@ -101,18 +100,25 @@ void osaura_storage_init(void) {
     zero_bytes(g_devices, sizeof g_devices);
     g_device_count = 0u;
     osaura_shadow_table_init(&g_storage_shadows);
-    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_STORAGE_READ1, shadow_read1, 0);
-    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_STORAGE_WRITE1, shadow_write1, 0);
-    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_STORAGE_READN, shadow_readn, 0);
-    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_STORAGE_WRITEN, shadow_writen, 0);
-    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_STORAGE_APPEND, shadow_filesystem_unbound, 0);
-    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_STORAGE_READAT, shadow_filesystem_unbound, 0);
-    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_STORAGE_WRITEAT, shadow_filesystem_unbound, 0);
-    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_STORAGE_COMMIT, shadow_commit, 0);
+    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_HOT_BANK_STORAGE, OSAURA_STORAGE_READ1, shadow_read1, 0);
+    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_HOT_BANK_STORAGE, OSAURA_STORAGE_WRITE1, shadow_write1, 0);
+    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_HOT_BANK_STORAGE, OSAURA_STORAGE_READN, shadow_readn, 0);
+    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_HOT_BANK_STORAGE, OSAURA_STORAGE_WRITEN, shadow_writen, 0);
+    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_HOT_BANK_STORAGE, OSAURA_STORAGE_APPEND, shadow_filesystem_unbound, 0);
+    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_HOT_BANK_STORAGE, OSAURA_STORAGE_READAT, shadow_filesystem_unbound, 0);
+    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_HOT_BANK_STORAGE, OSAURA_STORAGE_WRITEAT, shadow_filesystem_unbound, 0);
+    (void)osaura_shadow_bind(&g_storage_shadows, OSAURA_HOT_BANK_STORAGE, OSAURA_STORAGE_COMMIT, shadow_commit, 0);
 }
 
 int osaura_storage_dispatch(uint8_t selector, osaura_storage_request *request) {
-    return osaura_shadow_dispatch(&g_storage_shadows, selector, request);
+    return osaura_shadow_dispatch(&g_storage_shadows,
+                                  OSAURA_HOT_BANK_STORAGE,
+                                  selector,
+                                  request);
+}
+
+int osaura_storage_dispatch_opcode(uint8_t opcode, osaura_storage_request *request) {
+    return osaura_shadow_dispatch_opcode(&g_storage_shadows, opcode, request);
 }
 
 const osaura_shadow_table *osaura_storage_shadows(void) {
@@ -157,17 +163,21 @@ int osaura_block_get_info(uint32_t device_id, osaura_block_info *info) {
 
 int osaura_block_read(uint32_t device_id, uint64_t lba, uint32_t blocks, void *buffer) {
     osaura_storage_request request = {device_id, lba, 0u, blocks, 0u, buffer, 0};
-    return osaura_storage_dispatch(blocks == 1u ? OSAURA_STORAGE_READ1 : OSAURA_STORAGE_READN,
-                                   &request);
+    const uint8_t opcode = osaura_hot_opcode(OSAURA_HOT_BANK_STORAGE,
+        blocks == 1u ? OSAURA_STORAGE_READ1 : OSAURA_STORAGE_READN);
+    return osaura_storage_dispatch_opcode(opcode, &request);
 }
 
 int osaura_block_write(uint32_t device_id, uint64_t lba, uint32_t blocks, const void *buffer) {
     osaura_storage_request request = {device_id, lba, 0u, blocks, 0u, 0, buffer};
-    return osaura_storage_dispatch(blocks == 1u ? OSAURA_STORAGE_WRITE1 : OSAURA_STORAGE_WRITEN,
-                                   &request);
+    const uint8_t opcode = osaura_hot_opcode(OSAURA_HOT_BANK_STORAGE,
+        blocks == 1u ? OSAURA_STORAGE_WRITE1 : OSAURA_STORAGE_WRITEN);
+    return osaura_storage_dispatch_opcode(opcode, &request);
 }
 
 int osaura_block_flush(uint32_t device_id) {
     osaura_storage_request request = {device_id, 0u, 0u, 0u, 0u, 0, 0};
-    return osaura_storage_dispatch(OSAURA_STORAGE_COMMIT, &request);
+    return osaura_storage_dispatch_opcode(
+        osaura_hot_opcode(OSAURA_HOT_BANK_STORAGE, OSAURA_STORAGE_COMMIT),
+        &request);
 }
