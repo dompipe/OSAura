@@ -27,20 +27,20 @@
 #define JX_CHANNEL_DIR_OUT 2u
 #define JX_CHANNEL_DIR_INOUT 3u
 #define JX_RUNTIME_ENDPOINT 1u
-#define JX_PROGRAM_A 0x80000001u
-#define JX_PROGRAM_B 0x80000002u
 #define JX_RUNTIME_CHANNEL 1u
 #define JX_MESSAGE_BOOT 1u
 #define JX_MESSAGE_TICK 2u
 
-#define JX_BAG_SLOTS 7u
-#define JX_BAG_HEARTBEAT 0u
-#define JX_BAG_BUS_TICKS 1u
-#define JX_BAG_BUS_COLLECTS 2u
-#define JX_BAG_CHANNEL_MESSAGES 3u
-#define JX_BAG_CHANNEL_DELIVERIES 4u
-#define JX_BAG_CHANNEL_SWITCHES 5u
-#define JX_BAG_LAST_MESSAGE_TYPE 6u
+#define JX_BAG_MAX_SLOTS 64u
+#define JX_PREPARED_MAX 16u
+#define JX_GENERATION_MAX 8u
+#define JX_HOT_ROUTE_MAX 32u
+#define JX_HOT_AXIS 8u
+#define JX_ROUTE_NONE 0xffu
+
+#define JX_NATIVE_HEARTBEAT_INC 1u
+#define JX_NATIVE_REACTION_RUN_INC 2u
+#define JX_NATIVE_REACTION_VALUE_ADD 3u
 
 typedef struct {
     uint32_t state[8];
@@ -63,10 +63,106 @@ typedef struct {
     size_t applied_bus_bytes;
     const uint8_t *bag_schema;
     size_t bag_schema_bytes;
+    const uint8_t *prepared_code;
+    size_t prepared_code_bytes;
+    const uint8_t *hot_calls;
+    size_t hot_calls_bytes;
+    const uint8_t *hot_registers;
+    size_t hot_registers_bytes;
+    const uint8_t *hot_reactions;
+    size_t hot_reactions_bytes;
+    const uint8_t *generations;
+    size_t generations_bytes;
     uint32_t sections;
     uint16_t major;
     uint16_t minor;
 } jx64_book_view;
+
+typedef struct {
+    uint8_t heartbeat;
+    uint8_t bus_ticks;
+    uint8_t bus_collects;
+    uint8_t channel_messages;
+    uint8_t channel_deliveries;
+    uint8_t channel_switches;
+    uint8_t last_message_type;
+    uint8_t prepared_calls;
+    uint8_t hot_dispatches;
+    uint8_t reaction_runs;
+    uint8_t reaction_value;
+    uint8_t generation_swaps;
+    uint8_t active_generation;
+    uint8_t slot_count;
+} jx_bag_layout;
+
+typedef struct {
+    volatile uint64_t hot[JX_BAG_MAX_SLOTS];
+    uint64_t canonical[JX_BAG_MAX_SLOTS];
+    volatile uint64_t revision;
+    volatile uint64_t checkpoints;
+    uint8_t slot_count;
+    uint8_t dirty;
+} jx_record_bag;
+
+typedef struct {
+    uint8_t generation;
+    uint8_t family;
+    uint8_t slot;
+    uint8_t promoted_opcode;
+    uint8_t micro_slot;
+    uint8_t arity;
+    uint8_t native_operation;
+    uint8_t flags;
+} jx_call_row;
+
+typedef struct {
+    uint8_t generation;
+    uint8_t native_operation;
+    uint8_t arity;
+    uint8_t selector0;
+    uint8_t width;
+    uint16_t code_offset;
+} jx_prepared_binding;
+
+typedef struct {
+    uint8_t generation;
+    uint8_t reg;
+    uint8_t slot;
+    uint8_t shadow;
+    uint16_t reaction_id;
+    uint8_t delivery;
+    uint8_t flags;
+} jx_register_row;
+
+typedef struct {
+    uint8_t generation;
+    uint8_t reaction_id;
+    uint16_t prepared_offset;
+    uint8_t frame_register;
+    uint8_t immediate;
+    uint16_t flags;
+} jx_reaction_row;
+
+typedef struct {
+    uint8_t reg;
+    uint8_t slot;
+    uint8_t shadow;
+    uint8_t delivery;
+    uint8_t frame_register;
+    uint8_t immediate;
+    uint16_t reaction_id;
+    uint8_t prepared_index;
+} jx_hot_route;
+
+typedef struct {
+    uint64_t generation;
+    uint32_t endpoint_id;
+    jx_prepared_binding prepared[JX_PREPARED_MAX];
+    size_t prepared_count;
+    jx_hot_route routes[JX_HOT_ROUTE_MAX];
+    size_t route_count;
+    uint8_t route_index[JX_HOT_AXIS][JX_HOT_AXIS][JX_HOT_AXIS];
+} jx_generation_root;
 
 typedef int (*jx_channel_receive_fn)(uint16_t channel_id,
                                      uint32_t message_type,
@@ -107,14 +203,6 @@ typedef struct {
 } jx_channel_bus;
 
 typedef struct {
-    volatile uint64_t hot[JX_BAG_SLOTS];
-    uint64_t canonical[JX_BAG_SLOTS];
-    volatile uint64_t revision;
-    volatile uint64_t checkpoints;
-    uint8_t dirty;
-} jx_record_bag;
-
-typedef struct {
     uint32_t endpoint_id;
     uint64_t deliveries;
 } jx_program_probe;
@@ -122,13 +210,18 @@ typedef struct {
 static volatile uint8_t g_active;
 static volatile uint8_t g_book_loaded;
 static volatile uint8_t g_bus_ready;
+static volatile uint8_t g_tables_ready;
 static volatile uint64_t g_errors;
+static volatile uint64_t g_previous_generation;
 static uint8_t g_announced;
 static jx64_book_view g_book;
+static jx_bag_layout g_layout;
 static jx_record_bag g_bag;
+static jx_generation_root g_roots[JX_GENERATION_MAX];
+static size_t g_root_count;
+static jx_generation_root *g_active_root;
 static jx_channel_bus g_bus;
-static jx_program_probe g_program_a;
-static jx_program_probe g_program_b;
+static jx_program_probe g_programs[JX_GENERATION_MAX];
 
 static inline uint8_t in8(uint16_t port) {
     uint8_t value;
@@ -155,6 +248,11 @@ static void zero_bytes(void *target, size_t bytes) {
     for (size_t i = 0; i < bytes; ++i) out[i] = 0u;
 }
 
+static void fill_bytes(void *target, uint8_t value, size_t bytes) {
+    uint8_t *out = (uint8_t *)target;
+    for (size_t i = 0; i < bytes; ++i) out[i] = value;
+}
+
 static int bytes_equal(const uint8_t *a, const uint8_t *b, size_t bytes) {
     if (!a || !b) return 0;
     for (size_t i = 0; i < bytes; ++i)
@@ -168,10 +266,13 @@ static size_t text_length(const char *text) {
     return n;
 }
 
+static int text_equal_bytes(const uint8_t *data, size_t bytes, const char *text) {
+    size_t n = text_length(text);
+    return data && bytes == n && bytes_equal(data, (const uint8_t *)text, n);
+}
+
 static int entry_name_equal(const jx64_entry *entry, const char *name) {
-    size_t bytes = text_length(name);
-    return entry && bytes == entry->name_bytes &&
-           bytes_equal(entry->name, (const uint8_t *)name, bytes);
+    return entry && text_equal_bytes(entry->name, entry->name_bytes, name);
 }
 
 static uint16_t read_le16(const uint8_t *p) {
@@ -183,6 +284,10 @@ static uint32_t read_le32(const uint8_t *p) {
            ((uint32_t)p[1] << 8) |
            ((uint32_t)p[2] << 16) |
            ((uint32_t)p[3] << 24);
+}
+
+static uint64_t read_le64(const uint8_t *p) {
+    return (uint64_t)read_le32(p) | ((uint64_t)read_le32(p + 4u) << 32);
 }
 
 static uint32_t rotr32(uint32_t x, uint32_t shift) {
@@ -382,6 +487,31 @@ static int require_literal(const uint8_t **cursor, const uint8_t *end, const cha
     return 1;
 }
 
+static void capture_section(jx64_book_view *view, const jx64_entry *entry) {
+    if (entry_name_equal(entry, "CODE/applied-bus.bin")) {
+        view->applied_bus = entry->data;
+        view->applied_bus_bytes = entry->data_bytes;
+    } else if (entry_name_equal(entry, "BAG/schema.bin")) {
+        view->bag_schema = entry->data;
+        view->bag_schema_bytes = entry->data_bytes;
+    } else if (entry_name_equal(entry, "CODE/prepared.bin")) {
+        view->prepared_code = entry->data;
+        view->prepared_code_bytes = entry->data_bytes;
+    } else if (entry_name_equal(entry, "HOT/calls.bin")) {
+        view->hot_calls = entry->data;
+        view->hot_calls_bytes = entry->data_bytes;
+    } else if (entry_name_equal(entry, "HOT/registers.bin")) {
+        view->hot_registers = entry->data;
+        view->hot_registers_bytes = entry->data_bytes;
+    } else if (entry_name_equal(entry, "HOT/reactions.bin")) {
+        view->hot_reactions = entry->data;
+        view->hot_reactions_bytes = entry->data_bytes;
+    } else if (entry_name_equal(entry, "META/generations.bin")) {
+        view->generations = entry->data;
+        view->generations_bytes = entry->data_bytes;
+    }
+}
+
 static int parse_manifest_sections(const uint8_t *manifest,
                                    size_t manifest_bytes,
                                    const uint8_t *book,
@@ -425,9 +555,7 @@ static int parse_manifest_sections(const uint8_t *manifest,
         if (!parse_hex_digest(p, end, manifest_digest)) return -11;
         p += 64u;
         if (!require_literal(&p, end, "\"}")) return -12;
-        if (row + 1u < expected_sections) {
-            if (!require_literal(&p, end, ",")) return -13;
-        }
+        if (row + 1u < expected_sections && !require_literal(&p, end, ",")) return -13;
 
         jx64_entry entry;
         if (parse_local_entry(book, book_bytes, zip_offset, &entry) != 0) return -14;
@@ -451,13 +579,7 @@ static int parse_manifest_sections(const uint8_t *manifest,
         sha256_update(&canonical, le32, sizeof le32);
         sha256_update(&canonical, actual_digest, sizeof actual_digest);
 
-        if (entry_name_equal(&entry, "CODE/applied-bus.bin")) {
-            view->applied_bus = entry.data;
-            view->applied_bus_bytes = entry.data_bytes;
-        } else if (entry_name_equal(&entry, "BAG/schema.bin")) {
-            view->bag_schema = entry.data;
-            view->bag_schema_bytes = entry.data_bytes;
-        }
+        capture_section(view, &entry);
         zip_offset = entry.next_offset;
     }
 
@@ -474,7 +596,6 @@ static int parse_manifest_sections(const uint8_t *manifest,
 
 static int load_jx64(const uint8_t *book, size_t book_bytes, jx64_book_view *view) {
     static const uint8_t magic[8] = {'J','X','6','4','B','0','0','1'};
-    static const uint8_t bag_prefix[] = "jx.bag.container/1\0record\0";
     if (!book || !view || book_bytes < JX64_LOCAL_HEADER_BYTES || book_bytes > JX64_MAX_BOOK_BYTES) return -1;
     zero_bytes(view, sizeof *view);
 
@@ -486,7 +607,7 @@ static int load_jx64(const uint8_t *book, size_t book_bytes, jx64_book_view *vie
     uint16_t major = read_le16(header + 8u);
     uint16_t minor = read_le16(header + 10u);
     uint32_t sections = read_le32(header + 12u);
-    if (major != 1u || minor != 0u || sections == 0u || sections > 65535u) return -5;
+    if (major != 1u || minor != 0u || sections != 7u) return -5;
 
     jx64_entry manifest_entry;
     if (parse_local_entry(book, book_bytes, header_entry.next_offset, &manifest_entry) != 0) return -6;
@@ -496,6 +617,7 @@ static int load_jx64(const uint8_t *book, size_t book_bytes, jx64_book_view *vie
     if (!bytes_equal(manifest_digest, header + 16u, sizeof manifest_digest)) return -8;
     if (!find_literal(manifest_entry.data, manifest_entry.data_bytes, "\"format\":\"jx.64B/1\"")) return -9;
     if (!find_literal(manifest_entry.data, manifest_entry.data_bytes, "\"kind\":\"compiled-book\"")) return -10;
+    if (!find_literal(manifest_entry.data, manifest_entry.data_bytes, "\"compiler\":\"osaura-bootstrap/2\"")) return -11;
 
     view->major = major;
     view->minor = minor;
@@ -508,34 +630,332 @@ static int load_jx64(const uint8_t *book, size_t book_bytes, jx64_book_view *vie
                                      sections,
                                      view);
     if (rc != 0) return -100 + rc;
-    if (!view->applied_bus || view->applied_bus_bytes != OSAURA_JX_RUNTIME_PAGE_BYTES) return -11;
-    if (!view->bag_schema || view->bag_schema_bytes < sizeof bag_prefix - 1u ||
-        !bytes_equal(view->bag_schema, bag_prefix, sizeof bag_prefix - 1u)) return -12;
+    if (!view->applied_bus || view->applied_bus_bytes != OSAURA_JX_RUNTIME_PAGE_BYTES) return -12;
+    if (!view->bag_schema || !view->prepared_code || !view->hot_calls ||
+        !view->hot_registers || !view->hot_reactions || !view->generations) return -13;
+    return 0;
+}
+
+static int parse_bag_layout(const uint8_t *data, size_t bytes, jx_bag_layout *layout) {
+    static const uint8_t magic[8] = {'J','X','B','A','G','0','0','1'};
+    static const char *const names[] = {
+        "heartbeat", "bus_ticks", "bus_collects", "channel_messages",
+        "channel_deliveries", "channel_switches", "last_message_type",
+        "prepared_calls", "hot_dispatches", "reaction_runs", "reaction_value",
+        "generation_swaps", "active_generation"
+    };
+    if (!data || !layout || bytes < 12u || !bytes_equal(data, magic, sizeof magic)) return -1;
+    if (read_le16(data + 8u) != 1u) return -2;
+    uint16_t count = read_le16(data + 10u);
+    if (count != (uint16_t)(sizeof names / sizeof names[0]) || count > JX_BAG_MAX_SLOTS) return -3;
+    zero_bytes(layout, sizeof *layout);
+    uint8_t *slots = &layout->heartbeat;
+    size_t offset = 12u;
+    for (uint16_t i = 0; i < count; ++i) {
+        if (offset + 4u > bytes) return -4;
+        uint8_t slot = data[offset];
+        uint8_t type = data[offset + 1u];
+        uint16_t name_bytes = read_le16(data + offset + 2u);
+        offset += 4u;
+        if (slot >= JX_BAG_MAX_SLOTS || type != 1u || offset + name_bytes > bytes) return -5;
+        if (!text_equal_bytes(data + offset, name_bytes, names[i])) return -6;
+        slots[i] = slot;
+        offset += name_bytes;
+    }
+    if (offset != bytes) return -7;
+    for (uint16_t i = 0; i < count; ++i)
+        for (uint16_t j = i + 1u; j < count; ++j)
+            if (slots[i] == slots[j]) return -8;
+    layout->slot_count = (uint8_t)count;
+    return 0;
+}
+
+static int read_call_row(size_t index, jx_call_row *row) {
+    static const uint8_t magic[8] = {'J','X','C','A','L','L','0','1'};
+    const uint8_t *data = g_book.hot_calls;
+    size_t bytes = g_book.hot_calls_bytes;
+    if (!data || bytes < 12u || !bytes_equal(data, magic, sizeof magic)) return 0;
+    if (read_le16(data + 8u) != 3u) return 0;
+    uint16_t count = read_le16(data + 10u);
+    if (index >= count || 12u + (size_t)count * 8u != bytes) return 0;
+    const uint8_t *p = data + 12u + index * 8u;
+    row->generation = p[0];
+    row->family = p[1];
+    row->slot = p[2];
+    row->promoted_opcode = p[3];
+    row->micro_slot = p[4];
+    row->arity = p[5];
+    row->native_operation = p[6];
+    row->flags = p[7];
+    return 1;
+}
+
+static size_t call_row_count(void) {
+    if (!g_book.hot_calls || g_book.hot_calls_bytes < 12u) return 0u;
+    return read_le16(g_book.hot_calls + 10u);
+}
+
+static int read_register_row(size_t index, jx_register_row *row) {
+    static const uint8_t magic[8] = {'J','X','R','E','G','0','0','1'};
+    const uint8_t *data = g_book.hot_registers;
+    size_t bytes = g_book.hot_registers_bytes;
+    if (!data || bytes < 12u || !bytes_equal(data, magic, sizeof magic)) return 0;
+    if (read_le16(data + 8u) != 1u) return 0;
+    uint16_t count = read_le16(data + 10u);
+    if (index >= count || 12u + (size_t)count * 8u != bytes) return 0;
+    const uint8_t *p = data + 12u + index * 8u;
+    row->generation = p[0];
+    row->reg = p[1];
+    row->slot = p[2];
+    row->shadow = p[3];
+    row->reaction_id = read_le16(p + 4u);
+    row->delivery = p[6];
+    row->flags = p[7];
+    return 1;
+}
+
+static size_t register_row_count(void) {
+    if (!g_book.hot_registers || g_book.hot_registers_bytes < 12u) return 0u;
+    return read_le16(g_book.hot_registers + 10u);
+}
+
+static int read_reaction_row(size_t index, jx_reaction_row *row) {
+    static const uint8_t magic[8] = {'J','X','R','E','A','0','0','1'};
+    const uint8_t *data = g_book.hot_reactions;
+    size_t bytes = g_book.hot_reactions_bytes;
+    if (!data || bytes < 12u || !bytes_equal(data, magic, sizeof magic)) return 0;
+    if (read_le16(data + 8u) != 1u) return 0;
+    uint16_t count = read_le16(data + 10u);
+    if (index >= count || 12u + (size_t)count * 8u != bytes) return 0;
+    const uint8_t *p = data + 12u + index * 8u;
+    row->generation = p[0];
+    row->reaction_id = p[1];
+    row->prepared_offset = read_le16(p + 2u);
+    row->frame_register = p[4];
+    row->immediate = p[5];
+    row->flags = read_le16(p + 6u);
+    return 1;
+}
+
+static size_t reaction_row_count(void) {
+    if (!g_book.hot_reactions || g_book.hot_reactions_bytes < 12u) return 0u;
+    return read_le16(g_book.hot_reactions + 10u);
+}
+
+static jx_generation_root *find_root(uint64_t generation) {
+    for (size_t i = 0; i < g_root_count; ++i)
+        if (g_roots[i].generation == generation) return &g_roots[i];
+    return NULL;
+}
+
+static const jx_call_row *find_call_row(uint8_t generation,
+                                       uint8_t family,
+                                       uint8_t slot,
+                                       uint8_t promoted,
+                                       uint8_t micro,
+                                       jx_call_row *scratch) {
+    size_t count = call_row_count();
+    for (size_t i = 0; i < count; ++i) {
+        if (!read_call_row(i, scratch)) return NULL;
+        if (scratch->generation != generation) continue;
+        if (promoted != 0xffu && scratch->promoted_opcode == promoted) return scratch;
+        if (micro != 0xffu && scratch->micro_slot == micro) return scratch;
+        if (promoted == 0xffu && micro == 0xffu &&
+            scratch->family == family && scratch->slot == slot) return scratch;
+    }
+    return NULL;
+}
+
+static int prelink_one(jx_generation_root *root, size_t offset, jx_prepared_binding *out) {
+    if (!root || !out || offset >= g_book.prepared_code_bytes) return -1;
+    const uint8_t *code = g_book.prepared_code;
+    uint8_t first = code[offset];
+    uint8_t family = 0xffu, slot = 0xffu, promoted = 0xffu, micro = 0xffu;
+    uint8_t selector0 = 0xffu;
+    uint8_t width = 0u;
+
+    if (first >= 0x80u && first < 0xc0u) {
+        promoted = first;
+        width = 1u;
+    } else if (first >= 0xc0u && first < 0xe0u) {
+        micro = (uint8_t)((first >> 3u) & 0x03u);
+        selector0 = (uint8_t)(first & 0x07u);
+        width = 1u;
+    } else {
+        if (offset + 2u > g_book.prepared_code_bytes) return -2;
+        family = first;
+        slot = code[offset + 1u];
+        width = 2u;
+    }
+
+    jx_call_row scratch;
+    const jx_call_row *row = find_call_row((uint8_t)root->generation,
+                                           family, slot, promoted, micro, &scratch);
+    if (!row) return -3;
+    if (row->flags != 0u || row->native_operation < JX_NATIVE_HEARTBEAT_INC ||
+        row->native_operation > JX_NATIVE_REACTION_VALUE_ADD) return -4;
+    if (row->arity > 1u) return -5;
+    if (row->arity == 1u && micro == 0xffu) return -6;
+    if (row->arity == 0u) selector0 = 0xffu;
+
+    out->generation = (uint8_t)root->generation;
+    out->native_operation = row->native_operation;
+    out->arity = row->arity;
+    out->selector0 = selector0;
+    out->width = width;
+    out->code_offset = (uint16_t)offset;
+    return 0;
+}
+
+static int prelink_prepared_stream(jx_generation_root *root) {
+    size_t offset = 0u;
+    root->prepared_count = 0u;
+    while (offset < g_book.prepared_code_bytes) {
+        if (root->prepared_count >= JX_PREPARED_MAX) return -1;
+        jx_prepared_binding *binding = &root->prepared[root->prepared_count];
+        int rc = prelink_one(root, offset, binding);
+        if (rc != 0) return -10 + rc;
+        offset += binding->width;
+        ++root->prepared_count;
+    }
+    return root->prepared_count ? 0 : -2;
+}
+
+static int prepared_index_at(const jx_generation_root *root, uint16_t offset) {
+    for (size_t i = 0; i < root->prepared_count; ++i)
+        if (root->prepared[i].code_offset == offset) return (int)i;
+    return -1;
+}
+
+static int find_reaction(uint8_t generation, uint16_t reaction_id, jx_reaction_row *out) {
+    size_t count = reaction_row_count();
+    for (size_t i = 0; i < count; ++i) {
+        if (!read_reaction_row(i, out)) return 0;
+        if (out->generation == generation && out->reaction_id == reaction_id) return 1;
+    }
+    return 0;
+}
+
+static int prelink_routes(jx_generation_root *root) {
+    fill_bytes(root->route_index, JX_ROUTE_NONE, sizeof root->route_index);
+    root->route_count = 0u;
+    size_t count = register_row_count();
+    for (size_t i = 0; i < count; ++i) {
+        jx_register_row reg;
+        if (!read_register_row(i, &reg)) return -1;
+        if (reg.generation != (uint8_t)root->generation) continue;
+        if (reg.reg >= JX_HOT_AXIS || reg.slot >= JX_HOT_AXIS || reg.shadow >= JX_HOT_AXIS) return -2;
+        if (reg.flags != 0u || reg.delivery != 0u) return -3;
+        if (root->route_count >= JX_HOT_ROUTE_MAX) return -4;
+        if (root->route_index[reg.reg][reg.slot][reg.shadow] != JX_ROUTE_NONE) return -5;
+
+        jx_reaction_row reaction;
+        if (!find_reaction(reg.generation, reg.reaction_id, &reaction)) return -6;
+        if (reaction.flags != 0u || reaction.frame_register >= JX_HOT_AXIS) return -7;
+        int prepared_index = prepared_index_at(root, reaction.prepared_offset);
+        if (prepared_index < 0 || prepared_index > 0xff) return -8;
+
+        size_t at = root->route_count++;
+        jx_hot_route *route = &root->routes[at];
+        route->reg = reg.reg;
+        route->slot = reg.slot;
+        route->shadow = reg.shadow;
+        route->delivery = reg.delivery;
+        route->frame_register = reaction.frame_register;
+        route->immediate = reaction.immediate;
+        route->reaction_id = reg.reaction_id;
+        route->prepared_index = (uint8_t)prepared_index;
+        root->route_index[reg.reg][reg.slot][reg.shadow] = (uint8_t)at;
+    }
+    return root->route_count ? 0 : -9;
+}
+
+static int build_generation_roots(void) {
+    static const uint8_t magic[8] = {'J','X','G','E','N','0','0','1'};
+    const uint8_t *data = g_book.generations;
+    size_t bytes = g_book.generations_bytes;
+    if (!data || bytes < 12u || !bytes_equal(data, magic, sizeof magic)) return -1;
+    if (read_le16(data + 8u) != 1u) return -2;
+    uint16_t count = read_le16(data + 10u);
+    if (count < 2u || count > JX_GENERATION_MAX || 12u + (size_t)count * 12u != bytes) return -3;
+
+    zero_bytes(g_roots, sizeof g_roots);
+    g_root_count = count;
+    for (uint16_t i = 0; i < count; ++i) {
+        const uint8_t *p = data + 12u + (size_t)i * 12u;
+        uint64_t generation = read_le64(p);
+        uint32_t endpoint = read_le32(p + 8u);
+        if (!generation || generation > 0xffu || !endpoint || !(endpoint & 0x80000000u)) return -4;
+        for (uint16_t j = 0; j < i; ++j)
+            if (g_roots[j].generation == generation || g_roots[j].endpoint_id == endpoint) return -5;
+        g_roots[i].generation = generation;
+        g_roots[i].endpoint_id = endpoint;
+        int rc = prelink_prepared_stream(&g_roots[i]);
+        if (rc != 0) return -20 + rc;
+        rc = prelink_routes(&g_roots[i]);
+        if (rc != 0) return -40 + rc;
+    }
+    g_active_root = &g_roots[0];
+    g_previous_generation = 0u;
     return 0;
 }
 
 static void bag_init(void) {
     zero_bytes(&g_bag, sizeof g_bag);
+    g_bag.slot_count = g_layout.slot_count;
 }
 
 static void bag_add(uint32_t slot, uint64_t value) {
-    if (slot >= JX_BAG_SLOTS) return;
+    if (slot >= g_bag.slot_count) return;
     g_bag.hot[slot] += value;
     g_bag.dirty = 1u;
 }
 
 static void bag_set(uint32_t slot, uint64_t value) {
-    if (slot >= JX_BAG_SLOTS) return;
+    if (slot >= g_bag.slot_count) return;
     g_bag.hot[slot] = value;
     g_bag.dirty = 1u;
 }
 
 static void bag_checkpoint(void) {
     if (!g_bag.dirty) return;
-    for (uint32_t i = 0; i < JX_BAG_SLOTS; ++i) g_bag.canonical[i] = g_bag.hot[i];
+    for (uint32_t i = 0; i < g_bag.slot_count; ++i) g_bag.canonical[i] = g_bag.hot[i];
     ++g_bag.revision;
     ++g_bag.checkpoints;
     g_bag.dirty = 0u;
+}
+
+static int invoke_prelinked(const jx_prepared_binding *binding, const uint64_t frame[JX_HOT_AXIS]) {
+    if (!binding || !frame) return 0;
+    switch (binding->native_operation) {
+        case JX_NATIVE_HEARTBEAT_INC:
+            bag_add(g_layout.heartbeat, 1u);
+            break;
+        case JX_NATIVE_REACTION_RUN_INC:
+            bag_add(g_layout.reaction_runs, 1u);
+            break;
+        case JX_NATIVE_REACTION_VALUE_ADD:
+            if (binding->arity != 1u || binding->selector0 >= JX_HOT_AXIS) return 0;
+            bag_add(g_layout.reaction_value, frame[binding->selector0]);
+            break;
+        default:
+            return 0;
+    }
+    bag_add(g_layout.prepared_calls, 1u);
+    return 1;
+}
+
+static int hot_dispatch(uint8_t reg, uint8_t slot, uint8_t shadow) {
+    if (!g_active_root || reg >= JX_HOT_AXIS || slot >= JX_HOT_AXIS || shadow >= JX_HOT_AXIS) return 0;
+    uint8_t index = g_active_root->route_index[reg][slot][shadow];
+    if (index == JX_ROUTE_NONE || index >= g_active_root->route_count) return 0;
+    const jx_hot_route *route = &g_active_root->routes[index];
+    const jx_prepared_binding *binding = &g_active_root->prepared[route->prepared_index];
+    uint64_t frame[JX_HOT_AXIS] = {0u,0u,0u,0u,0u,0u,0u,0u};
+    frame[route->frame_register] = route->immediate;
+    if (!invoke_prelinked(binding, frame)) return 0;
+    bag_add(g_layout.hot_dispatches, 1u);
+    return 1;
 }
 
 static jx_channel_endpoint *find_endpoint(jx_channel_bus *bus, uint32_t endpoint_id) {
@@ -565,8 +985,7 @@ static int channel_bus_add_endpoint(jx_channel_bus *bus,
                                     uint32_t endpoint_id,
                                     jx_channel_receive_fn receive,
                                     void *context) {
-    if (!bus || !endpoint_id) return -1;
-    if (find_endpoint(bus, endpoint_id)) return -2;
+    if (!bus || !endpoint_id || find_endpoint(bus, endpoint_id)) return -1;
     for (size_t i = 0; i < JX_CHANNEL_BUS_MAX_ENDPOINTS; ++i) {
         if (!bus->endpoints[i].in_use) {
             jx_channel_endpoint *ep = &bus->endpoints[i];
@@ -579,7 +998,7 @@ static int channel_bus_add_endpoint(jx_channel_bus *bus,
             return 0;
         }
     }
-    return -3;
+    return -2;
 }
 
 static int channel_bus_bind(jx_channel_bus *bus,
@@ -666,8 +1085,8 @@ static int program_receive(uint16_t channel_id,
     if (channel_id != JX_RUNTIME_CHANNEL || !context) return -1;
     jx_program_probe *probe = (jx_program_probe *)context;
     ++probe->deliveries;
-    bag_add(JX_BAG_CHANNEL_DELIVERIES, 1u);
-    bag_set(JX_BAG_LAST_MESSAGE_TYPE, message_type);
+    bag_add(g_layout.channel_deliveries, 1u);
+    bag_set(g_layout.last_message_type, message_type);
     return 0;
 }
 
@@ -677,37 +1096,54 @@ static int runtime_publish(uint32_t message_type) {
                                  JX_RUNTIME_CHANNEL,
                                  message_type,
                                  NULL);
-    if (rc >= 0) bag_add(JX_BAG_CHANNEL_MESSAGES, 1u);
+    if (rc >= 0) bag_add(g_layout.channel_messages, 1u);
     return rc;
 }
 
 static int runtime_bus_init(void) {
-    channel_bus_init(&g_bus, JX_PROGRAM_A);
-    g_program_a.endpoint_id = JX_PROGRAM_A;
-    g_program_a.deliveries = 0;
-    g_program_b.endpoint_id = JX_PROGRAM_B;
-    g_program_b.deliveries = 0;
+    if (!g_active_root) return 0;
+    channel_bus_init(&g_bus, g_active_root->endpoint_id);
+    zero_bytes(g_programs, sizeof g_programs);
 
     if (channel_bus_add_endpoint(&g_bus, JX_RUNTIME_ENDPOINT, NULL, NULL) != 0) return 0;
-    if (channel_bus_add_endpoint(&g_bus, JX_PROGRAM_A, program_receive, &g_program_a) != 0) return 0;
-    if (channel_bus_add_endpoint(&g_bus, JX_PROGRAM_B, program_receive, &g_program_b) != 0) return 0;
     if (channel_bus_bind(&g_bus, JX_RUNTIME_ENDPOINT, JX_RUNTIME_CHANNEL, JX_CHANNEL_DIR_OUT) != 0) return 0;
-    if (channel_bus_bind(&g_bus, JX_PROGRAM_A, JX_RUNTIME_CHANNEL, JX_CHANNEL_DIR_INOUT) != 0) return 0;
-    if (channel_bus_bind(&g_bus, JX_PROGRAM_B, JX_RUNTIME_CHANNEL, JX_CHANNEL_DIR_INOUT) != 0) return 0;
 
-    /* Exercise the canonical pause/queue/program-switch rule before going live. */
+    for (size_t i = 0; i < g_root_count; ++i) {
+        g_programs[i].endpoint_id = g_roots[i].endpoint_id;
+        if (channel_bus_add_endpoint(&g_bus, g_roots[i].endpoint_id, program_receive, &g_programs[i]) != 0) return 0;
+        if (channel_bus_bind(&g_bus, g_roots[i].endpoint_id, JX_RUNTIME_CHANNEL, JX_CHANNEL_DIR_INOUT) != 0) return 0;
+    }
+
+    if (runtime_publish(JX_MESSAGE_BOOT) != 1) return 0;
+    if (g_programs[0].deliveries != 1u) return 0;
+    return 1;
+}
+
+static int generation_swap(uint64_t target_generation) {
+    jx_generation_root *next = find_root(target_generation);
+    if (!next || !g_active_root || next == g_active_root || g_bus.queue_count != 0u) return 0;
+
     channel_bus_pause(&g_bus);
-    if (runtime_publish(JX_MESSAGE_BOOT) != 0) return 0;
-    if (channel_bus_switch_program(&g_bus, JX_PROGRAM_A, JX_PROGRAM_B) != 0) return 0;
-    bag_add(JX_BAG_CHANNEL_SWITCHES, 1u);
+    bag_checkpoint();
+    uint32_t old_endpoint = g_active_root->endpoint_id;
+    uint64_t old_generation = g_active_root->generation;
+    if (channel_bus_switch_program(&g_bus, old_endpoint, next->endpoint_id) != 0) {
+        (void)channel_bus_resume(&g_bus);
+        return 0;
+    }
+
+    g_previous_generation = old_generation;
+    g_active_root = next;
+    bag_add(g_layout.channel_switches, 1u);
+    bag_add(g_layout.generation_swaps, 1u);
+    bag_set(g_layout.active_generation, target_generation);
+
+    if (runtime_publish(JX_MESSAGE_BOOT) != 0) {
+        (void)channel_bus_resume(&g_bus);
+        return 0;
+    }
     if (channel_bus_resume(&g_bus) != 1) return 0;
-    if (g_program_a.deliveries != 0u || g_program_b.deliveries != 1u) return 0;
-
-    channel_bus_pause(&g_bus);
-    if (channel_bus_switch_program(&g_bus, JX_PROGRAM_B, JX_PROGRAM_A) != 0) return 0;
-    bag_add(JX_BAG_CHANNEL_SWITCHES, 1u);
-    if (channel_bus_resume(&g_bus) != 0) return 0;
-    return g_bus.active_program_endpoint == JX_PROGRAM_A;
+    return g_bus.active_program_endpoint == next->endpoint_id;
 }
 
 static void runtime_error(void) {
@@ -727,8 +1163,8 @@ static int execute_applied_entry(uint32_t offset) {
     }
 
     if (op[2] == JX_BUS_TICK) {
-        bag_add(JX_BAG_BUS_TICKS, 1u);
-        bag_add(JX_BAG_HEARTBEAT, 1u);
+        bag_add(g_layout.bus_ticks, 1u);
+        bag_add(g_layout.heartbeat, 1u);
         if (runtime_publish(JX_MESSAGE_TICK) < 0) {
             runtime_error();
             return 0;
@@ -736,8 +1172,8 @@ static int execute_applied_entry(uint32_t offset) {
         return 1;
     }
     if (op[2] == JX_BUS_COLLECT) {
-        bag_add(JX_BAG_BUS_COLLECTS, 1u);
-        bag_add(JX_BAG_HEARTBEAT, 1u);
+        bag_add(g_layout.bus_collects, 1u);
+        bag_add(g_layout.heartbeat, 1u);
         bag_checkpoint();
         return 1;
     }
@@ -746,16 +1182,44 @@ static int execute_applied_entry(uint32_t offset) {
     return 0;
 }
 
+static int prepared_smoke(void) {
+    if (!g_active_root || g_active_root->prepared_count < 4u) return 0;
+    uint64_t frame[JX_HOT_AXIS] = {7u,0u,0u,0u,0u,0u,0u,0u};
+    int saw_one = 0, saw_two = 0, saw_micro = 0;
+    for (size_t i = 0; i < g_active_root->prepared_count; ++i) {
+        const jx_prepared_binding *binding = &g_active_root->prepared[i];
+        if (binding->width == 1u && binding->arity == 0u && !saw_one) {
+            if (!invoke_prelinked(binding, frame)) return 0;
+            saw_one = 1;
+        } else if (binding->width == 2u && !saw_two) {
+            if (!invoke_prelinked(binding, frame)) return 0;
+            saw_two = 1;
+        } else if (binding->width == 1u && binding->arity == 1u && !saw_micro) {
+            if (!invoke_prelinked(binding, frame)) return 0;
+            saw_micro = 1;
+        }
+    }
+    return saw_one && saw_two && saw_micro;
+}
+
 static void announce_when_admitted(void) {
-    if (g_announced || g_errors || !g_book_loaded || !g_bus_ready ||
-        !g_bag.hot[JX_BAG_BUS_TICKS] || !g_bag.hot[JX_BAG_BUS_COLLECTS] ||
-        !g_bag.hot[JX_BAG_CHANNEL_DELIVERIES] || !g_bag.checkpoints) return;
+    if (g_announced || g_errors || !g_book_loaded || !g_tables_ready || !g_bus_ready ||
+        !g_bag.hot[g_layout.bus_ticks] || !g_bag.hot[g_layout.bus_collects] ||
+        !g_bag.hot[g_layout.channel_deliveries] || !g_bag.hot[g_layout.prepared_calls] ||
+        !g_bag.hot[g_layout.hot_dispatches] || !g_bag.hot[g_layout.reaction_runs] ||
+        !g_bag.hot[g_layout.generation_swaps] || !g_bag.checkpoints ||
+        g_active_root == NULL || g_active_root->generation != 2u) return;
 
     g_announced = 1u;
     serial_text("\nJX 64B: VERIFIED\n");
     serial_text("JX 64B CODE/APPLIED-BUS: LOADED\n");
+    serial_text("JX BAG SCHEMA: LINKED\n");
     serial_text("JX BAG: ACTIVE\n");
     serial_text("JX BAG CHECKPOINT: ACTIVE\n");
+    serial_text("JX PREPARED CALLS: ACTIVE\n");
+    serial_text("JX HOT REGISTERS: ACTIVE\n");
+    serial_text("JX REACTIONS: ACTIVE\n");
+    serial_text("JX GENERATION 1->2: ACTIVE\n");
     serial_text("JX CHANNEL BUS: ACTIVE\n");
     serial_text("JX CHANNEL SWITCH: ACTIVE\n");
     serial_text("JX RUNTIME: ACTIVE\n");
@@ -768,6 +1232,7 @@ static void announce_when_admitted(void) {
 int osaura_jx_runtime_load_book(const void *bytes, uint64_t size) {
     if (g_active || g_book_loaded || !bytes || !size || size > JX64_MAX_BOOK_BYTES ||
         size > (uint64_t)(~(size_t)0)) return -1;
+
     jx64_book_view view;
     int rc = load_jx64((const uint8_t *)bytes, (size_t)size, &view);
     if (rc != 0) {
@@ -775,6 +1240,19 @@ int osaura_jx_runtime_load_book(const void *bytes, uint64_t size) {
         return rc;
     }
     g_book = view;
+
+    rc = parse_bag_layout(g_book.bag_schema, g_book.bag_schema_bytes, &g_layout);
+    if (rc != 0) {
+        ++g_errors;
+        return -200 + rc;
+    }
+    rc = build_generation_roots();
+    if (rc != 0) {
+        ++g_errors;
+        return -300 + rc;
+    }
+
+    g_tables_ready = 1u;
     g_book_loaded = 1u;
     return 0;
 }
@@ -784,23 +1262,48 @@ int osaura_jx_runtime_book_loaded(void) {
 }
 
 __attribute__((noreturn)) void osaura_jx_runtime_task(void) {
-    if (!g_book_loaded) {
+    if (!g_book_loaded || !g_tables_ready || !g_active_root) {
         runtime_error();
-        serial_text("\nJX RUNTIME: BOOK MISSING\n");
+        serial_text("\nJX RUNTIME: BOOK/TABLES MISSING\n");
         for (;;) __asm__ volatile("hlt");
     }
 
     bag_init();
+    bag_set(g_layout.active_generation, g_active_root->generation);
+
     if (!runtime_bus_init()) {
         runtime_error();
         serial_text("\nJX RUNTIME: CHANNEL BUS FAILED\n");
         for (;;) __asm__ volatile("hlt");
     }
     g_bus_ready = 1u;
+
+    if (!prepared_smoke()) {
+        runtime_error();
+        serial_text("\nJX RUNTIME: PREPARED CALL FAILED\n");
+        for (;;) __asm__ volatile("hlt");
+    }
+    if (!hot_dispatch(1u, 0u, 0u) || !hot_dispatch(1u, 1u, 0u)) {
+        runtime_error();
+        serial_text("\nJX RUNTIME: HOT GENERATION 1 FAILED\n");
+        for (;;) __asm__ volatile("hlt");
+    }
+    if (!generation_swap(2u)) {
+        runtime_error();
+        serial_text("\nJX RUNTIME: GENERATION CUTOVER FAILED\n");
+        for (;;) __asm__ volatile("hlt");
+    }
+    if (!hot_dispatch(1u, 0u, 0u) || !hot_dispatch(1u, 1u, 0u)) {
+        runtime_error();
+        serial_text("\nJX RUNTIME: HOT GENERATION 2 FAILED\n");
+        for (;;) __asm__ volatile("hlt");
+    }
+
     g_active = 1u;
 
     for (;;) {
-        /* AppliedBytecode::runtimeBusPage() exposes entrypoints, not a stream. */
+        (void)hot_dispatch(1u, 0u, 0u);
+        (void)hot_dispatch(1u, 1u, 0u);
         (void)execute_applied_entry(OSAURA_JX_RUNTIME_TICK_OFFSET);
         (void)execute_applied_entry(OSAURA_JX_RUNTIME_COLLECT_OFFSET);
         announce_when_admitted();
@@ -813,15 +1316,15 @@ int osaura_jx_runtime_active(void) {
 }
 
 uint64_t osaura_jx_runtime_heartbeat(void) {
-    return g_bag.hot[JX_BAG_HEARTBEAT];
+    return g_bag.hot[g_layout.heartbeat];
 }
 
 uint64_t osaura_jx_runtime_bus_ticks(void) {
-    return g_bag.hot[JX_BAG_BUS_TICKS];
+    return g_bag.hot[g_layout.bus_ticks];
 }
 
 uint64_t osaura_jx_runtime_bus_collects(void) {
-    return g_bag.hot[JX_BAG_BUS_COLLECTS];
+    return g_bag.hot[g_layout.bus_collects];
 }
 
 uint64_t osaura_jx_runtime_bag_revision(void) {
@@ -833,15 +1336,43 @@ uint64_t osaura_jx_runtime_bag_checkpoints(void) {
 }
 
 uint64_t osaura_jx_runtime_channel_messages(void) {
-    return g_bag.hot[JX_BAG_CHANNEL_MESSAGES];
+    return g_bag.hot[g_layout.channel_messages];
 }
 
 uint64_t osaura_jx_runtime_channel_deliveries(void) {
-    return g_bag.hot[JX_BAG_CHANNEL_DELIVERIES];
+    return g_bag.hot[g_layout.channel_deliveries];
 }
 
 uint64_t osaura_jx_runtime_channel_switches(void) {
-    return g_bag.hot[JX_BAG_CHANNEL_SWITCHES];
+    return g_bag.hot[g_layout.channel_switches];
+}
+
+uint64_t osaura_jx_runtime_prepared_calls(void) {
+    return g_bag.hot[g_layout.prepared_calls];
+}
+
+uint64_t osaura_jx_runtime_hot_dispatches(void) {
+    return g_bag.hot[g_layout.hot_dispatches];
+}
+
+uint64_t osaura_jx_runtime_reaction_runs(void) {
+    return g_bag.hot[g_layout.reaction_runs];
+}
+
+uint64_t osaura_jx_runtime_reaction_value(void) {
+    return g_bag.hot[g_layout.reaction_value];
+}
+
+uint64_t osaura_jx_runtime_generation_swaps(void) {
+    return g_bag.hot[g_layout.generation_swaps];
+}
+
+uint64_t osaura_jx_runtime_active_generation(void) {
+    return g_active_root ? g_active_root->generation : 0u;
+}
+
+uint64_t osaura_jx_runtime_previous_generation(void) {
+    return g_previous_generation;
 }
 
 uint64_t osaura_jx_runtime_errors(void) {
