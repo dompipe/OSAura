@@ -41,7 +41,6 @@ typedef struct {
     uint32_t type;
     uint32_t window_id;
     uint32_t owner_subject;
-    uint32_t listener_pid;
     int32_t x;
     int32_t y;
     uint32_t code;
@@ -74,7 +73,6 @@ uint32_t osaura_jx11_window_hit_test(int32_t x, int32_t y);
 int osaura_jx11_window_pointer(int32_t x, int32_t y, uint32_t buttons, uint32_t changed_button, int pressed);
 int osaura_jx11_window_key(uint32_t code, int pressed);
 int osaura_jx11_window_event_pop(uint32_t owner_subject, osaura_jx11_event *event);
-int osaura_jx11_window_event_pop_listener(uint32_t listener_pid, osaura_jx11_event *event);
 int osaura_jx11_window_compose(void);
 uint32_t osaura_jx11_window_count(void);
 
