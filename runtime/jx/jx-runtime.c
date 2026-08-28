@@ -8,6 +8,7 @@
 #define JX_BUS_TICK 0x01u
 #define JX_BUS_COLLECT 0x02u
 #define JX_SYSTEM_BYTES 3u
+#define COM1 0x3f8u
 
 /*
  * Canonical source remains in dompipe/jx. OSAura consumes the stable applied
@@ -31,6 +32,27 @@ static volatile uint64_t g_bus_ticks;
 static volatile uint64_t g_bus_collects;
 static volatile uint64_t g_errors;
 static uint32_t g_pc;
+static uint8_t g_announced;
+
+static inline uint8_t in8(uint16_t port) {
+    uint8_t value;
+    __asm__ volatile("inb %1, %0" : "=a"(value) : "Nd"(port));
+    return value;
+}
+
+static inline void out8(uint16_t port, uint8_t value) {
+    __asm__ volatile("outb %0, %1" : : "a"(value), "Nd"(port));
+}
+
+static void serial_char(char c) {
+    if (c == '\n') serial_char('\r');
+    while (!(in8(COM1 + 5u) & 0x20u)) __asm__ volatile("pause");
+    out8(COM1, (uint8_t)c);
+}
+
+static void serial_text(const char *text) {
+    while (*text) serial_char(*text++);
+}
 
 static void execute_applied_entry(void) {
     uint32_t pc = g_pc;
@@ -60,10 +82,22 @@ static void execute_applied_entry(void) {
     g_pc = pc < OSAURA_JX_RUNTIME_PAGE_BYTES ? pc : 0u;
 }
 
+static void announce_when_admitted(void) {
+    if (g_announced || g_errors || !g_bus_ticks || !g_bus_collects) return;
+
+    g_announced = 1u;
+    serial_text("\nJX RUNTIME: ACTIVE\n");
+    serial_text("JX APPLIED ABI: 1\n");
+    serial_text("JX PAGE: 7F0001 7F0002\n");
+    serial_text("JX BUS.TICK: ACTIVE\n");
+    serial_text("JX BUS.COLLECT: ACTIVE\n");
+}
+
 __attribute__((noreturn)) void osaura_jx_runtime_task(void) {
     g_active = 1u;
     for (;;) {
         execute_applied_entry();
+        announce_when_admitted();
         __asm__ volatile("hlt");
     }
 }
