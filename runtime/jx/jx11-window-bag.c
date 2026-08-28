@@ -1,6 +1,7 @@
 #include "jx11-window-bag.h"
 #include "jx11-window.h"
 #include "jx-bag-bus.h"
+#include "../../kernel/processor-bus.h"
 
 #include <string.h>
 
@@ -80,7 +81,6 @@ int osaura_jx11_window_bag_get(uint32_t window_id, osaura_jx11_window_bag_view *
     if (!g_ready || !out || window_id >= OSAURA_JX11_WINDOW_MAX) return -1;
     if (!g_view[window_id].bound) return 0;
 
-    /* Window slots are reusable. Never let an old borrowed Bag survive reuse. */
     if (osaura_jx11_window_get_info(window_id, &info) != 0 ||
         info.owner_subject != g_view[window_id].owner_subject) {
         memset(&g_view[window_id], 0, sizeof g_view[window_id]);
@@ -100,6 +100,12 @@ int osaura_jx11_window_bag_publish_as(uint32_t owner_subject,
     if (rc != 0) return rc;
     osaura_jx11_window_bag_view *view = &g_view[window_id];
     if (!view->bound || view->owner_subject != owner_subject) return -4;
+
+    /* Visual attention becomes bus attention without changing Bag identity. */
+    uint32_t listener = osaura_jx11_window_primary_listener();
+    rc = osaura_processor_bus_set_priority_pid(
+        listener == OSAURA_JX11_LISTENER_NONE ? OSAURA_PROCESSOR_BUS_PID_NONE : listener);
+    if (rc != 0) return -5;
 
     osaura_jx_bag_bus_publication publication = {0};
     publication.bag_id = view->bag_id;
