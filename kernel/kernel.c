@@ -1,5 +1,6 @@
 #include "boot-info.h"
 #include "mm.h"
+#include "scheduler.h"
 
 #define GLYPH_W 5u
 #define GLYPH_H 7u
@@ -466,13 +467,31 @@ static void wait_for_timer_irq(void) {
 
 static void print_prompt(void) { write_text("OSAURA> "); }
 
+static void print_tasks(void) {
+    uint32_t count = osaura_scheduler_task_count();
+    write_text("TASKS: ");
+    write_u64(count);
+    write_text(" CURRENT: ");
+    write_u64(osaura_scheduler_current_task());
+    write_text("\n");
+
+    for (uint32_t id = 0; id < count; ++id) {
+        write_text(osaura_scheduler_task_name(id));
+        write_text(" TICKS: ");
+        write_u64(osaura_scheduler_task_ticks(id));
+        write_text(" SWITCHES: ");
+        write_u64(osaura_scheduler_task_switches(id));
+        write_text("\n");
+    }
+}
+
 static void run_command(const char *line) {
     if (!line[0]) return;
     if (text_equal(line, "HELP")) {
-        write_text("HELP ABOUT MEM VM TICKS ALLOC CLEAR HALT\n");
+        write_text("HELP ABOUT MEM VM TASKS TICKS ALLOC CLEAR HALT\n");
     } else if (text_equal(line, "ABOUT")) {
         write_text("OSAURA NATIVE X86-64 KERNEL\n");
-        write_text("INTERRUPTS MEMORY AND TERMINAL OWNED\n");
+        write_text("VM INTERRUPTS TASKS AND TERMINAL OWNED\n");
     } else if (text_equal(line, "MEM")) {
         write_text("MEMORY MAP BYTES: ");
         write_u64(g_boot.memory_map_size);
@@ -490,6 +509,8 @@ static void run_command(const char *line) {
         write_text("\nDIRECT MAP GIB: ");
         write_u64(osaura_vm_direct_limit() >> 30);
         write_text("\nPAGE SIZE MIB: 2\n");
+    } else if (text_equal(line, "TASKS")) {
+        print_tasks();
     } else if (text_equal(line, "TICKS")) {
         write_text("PIT TICKS: ");
         write_u64(osaura_ticks);
@@ -513,6 +534,7 @@ __attribute__((noreturn)) static void terminal_loop(void) {
     char line[LINE_MAX];
     uint32_t length = 0;
     print_prompt();
+    osaura_scheduler_start();
 
     for (;;) {
         char c = keyboard_pop();
@@ -567,7 +589,10 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     wait_for_timer_irq();
     serial_text("BOOT: IRQ0 RECEIVED\n");
 
-    write_text("OSAURA KERNEL 0.4-DEV\n");
+    osaura_scheduler_init();
+    serial_text("BOOT: SCHEDULER READY\n");
+
+    write_text("OSAURA KERNEL 0.5-DEV\n");
     write_text("X86-64 NATIVE MODE\n");
     write_text("UEFI BOOT SERVICES: EXITED\n");
     write_text("FRAMEBUFFER: OWNED\n");
@@ -580,6 +605,7 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     write_text("PIT IRQ0: ACTIVE\n");
     write_text("PS2 IRQ1: ACTIVE\n");
     write_text(allocator_ok ? "PAGE ALLOCATOR: ACTIVE\n" : "PAGE ALLOCATOR: FAILED\n");
+    write_text("SCHEDULER: READY\n");
     write_text("SERIAL COM1: ACTIVE\n\n");
     write_text("TYPE HELP FOR COMMANDS\n\n");
     terminal_loop();
