@@ -7,17 +7,18 @@
 #define OSAURA_SECURITY_KERNEL_SUBJECT 0u
 #define OSAURA_SECURITY_JX_SUBJECT 1u
 
-#define OSAURA_CAP_STORAGE_READ  (1ull << 0)
-#define OSAURA_CAP_STORAGE_WRITE (1ull << 1)
-#define OSAURA_CAP_NETWORK       (1ull << 2)
-#define OSAURA_CAP_USB           (1ull << 3)
-#define OSAURA_CAP_WIFI          (1ull << 4)
-#define OSAURA_CAP_TASK_CONTROL  (1ull << 5)
-#define OSAURA_CAP_VFS_READ      (1ull << 6)
-#define OSAURA_CAP_VFS_WRITE     (1ull << 7)
-#define OSAURA_CAP_BOOK_LOAD     (1ull << 8)
-#define OSAURA_CAP_ADMIN         (1ull << 63)
-#define OSAURA_CAP_ALL           UINT64_MAX
+#define OSAURA_CAP_STORAGE_READ    (1ull << 0)
+#define OSAURA_CAP_STORAGE_WRITE   (1ull << 1)
+#define OSAURA_CAP_NETWORK         (1ull << 2)
+#define OSAURA_CAP_USB             (1ull << 3)
+#define OSAURA_CAP_WIFI            (1ull << 4)
+#define OSAURA_CAP_TASK_CONTROL    (1ull << 5)
+#define OSAURA_CAP_VFS_READ        (1ull << 6)
+#define OSAURA_CAP_VFS_WRITE       (1ull << 7)
+#define OSAURA_CAP_BOOK_LOAD       (1ull << 8)
+#define OSAURA_CAP_WIFI_CREDENTIAL (1ull << 9)
+#define OSAURA_CAP_ADMIN           (1ull << 63)
+#define OSAURA_CAP_ALL             UINT64_MAX
 
 /* Bank 13 / opcodes 0xE8..0xEF. */
 enum {
