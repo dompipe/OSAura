@@ -36,11 +36,12 @@ static int cache_event(uint32_t owner_subject,
     if (g_cached >= OSAURA_JX11_LISTENER_EVENT_CACHE_MAX) return -1;
     for (uint32_t i = 0u; i < OSAURA_JX11_LISTENER_EVENT_CACHE_MAX; ++i) {
         if (g_cache[i].used) continue;
+        ++g_sequence;
+        if (g_sequence == 0ull) g_sequence = 1ull;
         g_cache[i].event = *event;
         g_cache[i].owner_subject = owner_subject;
         g_cache[i].listener_pid = listener_pid;
-        g_cache[i].sequence = ++g_sequence;
-        if (g_sequence == 0ull) g_sequence = ++g_sequence;
+        g_cache[i].sequence = g_sequence;
         g_cache[i].used = 1u;
         ++g_cached;
         return 0;
