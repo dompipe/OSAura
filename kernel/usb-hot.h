@@ -4,8 +4,8 @@
 #include <stdint.h>
 #include "usb.h"
 
-/* USB owns bank 6: 0xB0..0xB7.  These are the eight operations that sit on
- * top of the raw xHCI/HID mechanisms.  The raw driver remains the authority;
+/* USB owns bank 6: 0xB0..0xB7. These are the eight operations that sit on
+ * top of the raw xHCI/HID mechanisms. The raw driver remains the authority;
  * this layer only gives the kernel/JX one-byte prepared entry points. */
 enum {
     OSAURA_USB_HOT_INIT = 0u,          /* 0xB0 controller discover/reset/start */
@@ -14,15 +14,13 @@ enum {
     OSAURA_USB_HOT_CHAR_POP = 3u,      /* 0xB3 printable compatibility byte */
     OSAURA_USB_HOT_XHCI_PRESENT = 4u,  /* 0xB4 controller presence */
     OSAURA_USB_HOT_HID_READY = 5u,     /* 0xB5 boot keyboard ready */
-    OSAURA_USB_HOT_STATUS = 6u,        /* 0xB6 packed controller/HID state */
+    OSAURA_USB_HOT_STATUS = 6u,        /* 0xB6 packed public USB state */
     OSAURA_USB_HOT_REINIT = 7u         /* 0xB7 explicit recovery re-init */
 };
 
 typedef struct {
     uint8_t xhci_present;
-    uint8_t xhci_running;
     uint8_t keyboard_ready;
-    uint8_t reserved;
 } osaura_usb_hot_status;
 
 /* Called by the global hot-map bootstrap. Safe to call more than once. */
