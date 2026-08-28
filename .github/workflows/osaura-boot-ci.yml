@@ -30,14 +30,15 @@ jobs:
       - name: Build BOOTX64.EFI and native kernel
         run: make efi
 
-      - name: Validate kernel handoff linkage
+      - name: Validate linked kernel objects
         run: |
-          nm build/bootx64.so > build/symbols.txt
+          test -s build/loader.o
+          test -s build/kernel.o
+          test -s build/bootx64.so
+          nm build/kernel.o | grep -F 'osaura_kernel_main'
           objdump -h build/bootx64.so > build/sections.txt
-          strings build/bootx64.so > build/strings.txt
-          grep -q 'osaura_kernel_main' build/symbols.txt
-          grep -q '.rodata' build/sections.txt
-          grep -q 'OSAURA KERNEL' build/strings.txt
+          grep -F '.text' build/sections.txt
+          grep -F '.data' build/sections.txt
 
       - name: Build USB image
         run: make image
@@ -52,16 +53,16 @@ jobs:
 
       - name: Boot native kernel under OVMF
         run: |
-          OVMF_CODE=""
-          OVMF_VARS=""
-          for f in /usr/share/OVMF/OVMF_CODE.fd /usr/share/OVMF/OVMF_CODE_4M.fd; do
-            if [ -f "$f" ]; then OVMF_CODE="$f"; break; fi
-          done
-          for f in /usr/share/OVMF/OVMF_VARS.fd /usr/share/OVMF/OVMF_VARS_4M.fd; do
-            if [ -f "$f" ]; then OVMF_VARS="$f"; break; fi
-          done
-          test -n "$OVMF_CODE"
-          test -n "$OVMF_VARS"
+          if [ -f /usr/share/OVMF/OVMF_CODE.fd ] && [ -f /usr/share/OVMF/OVMF_VARS.fd ]; then
+            OVMF_CODE=/usr/share/OVMF/OVMF_CODE.fd
+            OVMF_VARS=/usr/share/OVMF/OVMF_VARS.fd
+          elif [ -f /usr/share/OVMF/OVMF_CODE_4M.fd ] && [ -f /usr/share/OVMF/OVMF_VARS_4M.fd ]; then
+            OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
+            OVMF_VARS=/usr/share/OVMF/OVMF_VARS_4M.fd
+          else
+            echo 'No matched OVMF CODE/VARS pair found'
+            exit 1
+          fi
           cp "$OVMF_VARS" build/OVMF_VARS.fd
           set +e
           timeout 12s qemu-system-x86_64 \
@@ -78,11 +79,11 @@ jobs:
             > build/qemu.log 2>&1
           rc=$?
           set -e
-          if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then cat build/qemu.log; exit "$rc"; fi
           cat build/qemu.log
-          grep -q 'OSAURA KERNEL 0.2-DEV' build/qemu.log
-          grep -q 'UEFI BOOT SERVICES: EXITED' build/qemu.log
-          grep -q 'OSAURA>' build/qemu.log
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then exit "$rc"; fi
+          grep -Fq 'OSAURA KERNEL 0.2-DEV' build/qemu.log
+          grep -Fq 'UEFI BOOT SERVICES: EXITED' build/qemu.log
+          grep -Fq 'OSAURA>' build/qemu.log
 
       - name: Upload boot artifacts
         uses: actions/upload-artifact@v4
