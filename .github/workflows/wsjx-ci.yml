@@ -1,0 +1,53 @@
+name: WSJX Windows CI
+
+on:
+  push:
+    paths:
+      - 'host/windows/wsjx.c'
+      - 'host/windows/security-host.c'
+      - 'host/windows/socket-winsock.c'
+      - 'host/windows/socket-winsock.h'
+      - 'include/osaura/socket.h'
+      - 'kernel/socket.c'
+      - 'kernel/security.h'
+      - '.github/workflows/wsjx-ci.yml'
+  pull_request:
+    paths:
+      - 'host/windows/wsjx.c'
+      - 'host/windows/security-host.c'
+      - 'host/windows/socket-winsock.c'
+      - 'host/windows/socket-winsock.h'
+      - 'include/osaura/socket.h'
+      - 'kernel/socket.c'
+      - 'kernel/security.h'
+      - '.github/workflows/wsjx-ci.yml'
+
+jobs:
+  wsjx:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Build wsjx.exe
+        shell: cmd
+        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c kernel\socket.c /Iinclude /Ikernel /link Ws2_32.lib /OUT:wsjx.exe
+
+      - name: Smoke test WSJX shell
+        shell: powershell
+        run: |
+          @"
+          STATUS
+          CAPS
+          MODE JXL
+          STATUS
+          SOCKET
+          EXIT
+          "@ | .\wsjx.exe | Tee-Object -FilePath wsjx-smoke.txt
+          $text = Get-Content wsjx-smoke.txt -Raw
+          if ($text -notmatch 'WSJX - WINDOWS SUBSYSTEM FOR JX') { throw 'banner missing' }
+          if ($text -notmatch 'MODE: JXL') { throw 'JXL mode switch missing' }
+          if ($text -notmatch 'JX SOCKET: PASS') { throw 'Winsock path failed' }
+          if ($text -notmatch 'F0-FF: RESERVED') { throw 'reserved opcode invariant missing' }
