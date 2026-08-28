@@ -4,9 +4,10 @@ set -euo pipefail
 BUILD_DIR=${BUILD_DIR:-build}
 IMAGE=${IMAGE:-${BUILD_DIR}/osaura.img}
 EFI_BINARY=${EFI_BINARY:-${BUILD_DIR}/BOOTX64.EFI}
+JX_BOOK=${JX_BOOK:-${BUILD_DIR}/runtime.64B}
 IMAGE_MIB=${IMAGE_MIB:-64}
 
-for tool in mkfs.vfat mmd mcopy; do
+for tool in mkfs.vfat mmd mcopy python3; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "missing required tool: $tool" >&2
         exit 1
@@ -15,6 +16,12 @@ done
 
 [ -f "$EFI_BINARY" ] || {
     echo "missing EFI binary: $EFI_BINARY" >&2
+    exit 1
+}
+
+python3 scripts/make-jx-runtime-book.py "$JX_BOOK"
+[ -f "$JX_BOOK" ] || {
+    echo "missing JX runtime Book: $JX_BOOK" >&2
     exit 1
 }
 
@@ -27,6 +34,7 @@ mmd -i "$IMAGE" ::/EFI
 mmd -i "$IMAGE" ::/EFI/BOOT
 mmd -i "$IMAGE" ::/OSAURA
 mcopy -i "$IMAGE" "$EFI_BINARY" ::/EFI/BOOT/BOOTX64.EFI
+mcopy -i "$IMAGE" "$JX_BOOK" ::/OSAURA/runtime.64B
 
 cat >"${BUILD_DIR}/osaura.cfg" <<'CFG'
 name=OSAura
@@ -34,8 +42,10 @@ arch=x86_64
 boot=uefi
 shell=terminal
 runtime=jx
+book=OSAURA/runtime.64B
 CFG
 mcopy -i "$IMAGE" "${BUILD_DIR}/osaura.cfg" ::/OSAURA/osaura.cfg
 
 echo "created $IMAGE"
 echo "UEFI fallback path: EFI/BOOT/BOOTX64.EFI"
+echo "JX runtime Book: OSAURA/runtime.64B"
