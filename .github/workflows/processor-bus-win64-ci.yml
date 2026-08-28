@@ -9,6 +9,8 @@ on:
       - 'kernel/security.h'
       - 'host/windows/processor-bus-win64.c'
       - 'host/windows/processor-bus-win64.h'
+      - 'host/windows/processor-bus-autobind-win64.c'
+      - 'host/windows/processor-bus-autobind-win64.h'
       - 'host/windows/runtime64.c'
       - 'host/windows/runtime64.h'
       - 'host/windows/security-host.c'
@@ -20,6 +22,8 @@ on:
       - 'kernel/processor-bus.h'
       - 'host/windows/processor-bus-win64.c'
       - 'host/windows/processor-bus-win64.h'
+      - 'host/windows/processor-bus-autobind-win64.c'
+      - 'host/windows/processor-bus-autobind-win64.h'
       - 'host/windows/runtime64.c'
       - 'host/windows/runtime64.h'
       - 'tests/wsjx64-bus-test.c'
@@ -38,20 +42,21 @@ jobs:
       - name: Compile runtime64
         shell: cmd
         run: cl /nologo /W4 /WX /c host\windows\runtime64.c /DOSAURA_RUNTIME64_SOURCE /Iinclude /Ikernel /Ihost\windows /Foruntime64.obj
-      - name: Build shared processor bus on Win64
+      - name: Build shared processor bus startup test on Win64
         shell: cmd
         run: >-
           cl /nologo /W4 /WX
           tests\wsjx64-bus-test.c
           host\windows\processor-bus-win64.c
+          host\windows\processor-bus-autobind-win64.c
           host\windows\security-host.c
           kernel\processor-bus.c
           runtime64.obj
           /Iinclude /Ikernel /Ihost\windows
           /link /MACHINE:X64 /OUT:wsjx64-bus-test.exe
-      - name: Verify processor bus parity
+      - name: Verify processor bus startup parity
         shell: powershell
         run: |
           .\wsjx64-bus-test.exe | Tee-Object -FilePath wsjx64-bus.txt
           $text = Get-Content wsjx64-bus.txt -Raw
-          if ($text -notmatch 'WSJX64 PROCESSOR BUS: PASS') { throw 'WSJX64 processor bus parity failed' }
+          if ($text -notmatch 'WSJX64 PROCESSOR BUS AUTOBIND: PASS') { throw 'WSJX64 processor bus startup autobind failed' }
