@@ -1,0 +1,54 @@
+name: JX prepared Win64 CI
+
+on:
+  push:
+    branches: [ jx-live-book-generations ]
+    paths:
+      - 'runtime/jx/jx-prepared.c'
+      - 'runtime/jx/jx-prepared.h'
+      - 'host/windows/prepared-win64.c'
+      - 'host/windows/prepared-win64.h'
+      - 'host/windows/vfs64.c'
+      - 'host/windows/vfs64.h'
+      - 'host/windows/runtime64.c'
+      - 'host/windows/runtime64.h'
+      - 'host/windows/security-host.c'
+      - 'kernel/security.h'
+      - 'tests/wsjx64-prepared-test.c'
+      - '.github/workflows/jx-prepared-win64-ci.yml'
+  pull_request:
+    paths:
+      - 'runtime/jx/jx-prepared.c'
+      - 'runtime/jx/jx-prepared.h'
+      - 'host/windows/prepared-win64.c'
+      - 'host/windows/prepared-win64.h'
+      - 'host/windows/vfs64.c'
+      - 'host/windows/vfs64.h'
+      - 'host/windows/runtime64.c'
+      - 'host/windows/runtime64.h'
+      - 'host/windows/security-host.c'
+      - 'kernel/security.h'
+      - 'tests/wsjx64-prepared-test.c'
+      - '.github/workflows/jx-prepared-win64-ci.yml'
+
+jobs:
+  prepared-win64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize x64 MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Compile runtime64 core
+        shell: cmd
+        run: cl /nologo /W4 /WX /c host\windows\runtime64.c /DOSAURA_RUNTIME64_SOURCE /Iinclude /Ikernel /Iruntime\jx /Ihost\windows /Foruntime64.obj
+      - name: Build Win64 prepared integration test
+        shell: cmd
+        run: cl /nologo /W4 /WX tests\wsjx64-prepared-test.c host\windows\prepared-win64.c host\windows\vfs64.c host\windows\security-host.c runtime\jx\jx-prepared.c runtime64.obj /Iinclude /Ikernel /Iruntime\jx /Ihost\windows /link /MACHINE:X64 /OUT:wsjx64-prepared-test.exe
+      - name: Run Win64 prepared integration test
+        shell: powershell
+        run: |
+          .\wsjx64-prepared-test.exe | Tee-Object -FilePath wsjx64-prepared.txt
+          $text = Get-Content wsjx64-prepared.txt -Raw
+          if ($text -notmatch 'WSJX64 VFS -> 64B -> JXL: PASS') { throw 'prepared Win64 integration failed' }
