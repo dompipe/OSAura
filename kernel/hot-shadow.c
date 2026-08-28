@@ -1,4 +1,6 @@
 #include "hot-shadow.h"
+
+#if !defined(OSAURA_HOT_HOSTED)
 #include "storage.h"
 #include "ipc.h"
 #include "usb-hot.h"
@@ -9,6 +11,7 @@
 #include "vfs.h"
 #include "book-hot.h"
 #include "security.h"
+#endif
 
 #include <stdint.h>
 
@@ -26,8 +29,7 @@ void osaura_hot_reset(void) {
 
 void osaura_hot_init(void) {
     osaura_hot_reset();
-
-    /* State owners initialize before their hot banks are admitted. */
+#if !defined(OSAURA_HOT_HOSTED)
     osaura_security_init();
     osaura_storage_init();
     osaura_ipc_init();
@@ -41,6 +43,7 @@ void osaura_hot_init(void) {
     (void)osaura_vfs_hot_bind();
     (void)osaura_book_hot_bind();
     (void)osaura_security_hot_bind();
+#endif
 }
 
 static void ensure_hot_init(void) {
