@@ -51,7 +51,7 @@ typedef struct {
     uint32_t foreground_pid;     /* bookmarked route[0] when it is a live program */
     uint32_t active_pid;
     osaura_processor_bus_change change;
-    uintptr_t response_ref;      /* latest borrowed response; processor consumes it */
+    uintptr_t response_ref;      /* most recent borrowed response, kept for compatibility */
     uint32_t response_bytes;
     uint32_t response_pid;
 } osaura_processor_bus_info;
@@ -89,11 +89,17 @@ int osaura_processor_bus_ack(uint32_t pid,
                              const void *pointed_response,
                              uint32_t response_bytes);
 
-/* Processor reads CHECK results without copying the pointed response. */
+/* Compatibility summary: returns the most recent changed response. */
 int osaura_processor_bus_response(const void **data,
                                   uint32_t *bytes,
                                   uint16_t *changed_bits,
                                   uint32_t *response_pid);
+
+/* Read every changed response by traversal position without copying it. */
+int osaura_processor_bus_response_at(uint32_t order_index,
+                                     const void **data,
+                                     uint32_t *bytes,
+                                     uint32_t *response_pid);
 
 /* Processor publishes its dealt result back through the identical route. */
 int osaura_processor_bus_publish_return(const void *pointed_data, uint32_t bytes);
