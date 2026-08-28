@@ -2,6 +2,7 @@
 #define OSAURA_WINDOWS_RUNTIME64_H
 
 #include <stdint.h>
+#include <string.h>
 #include "../../kernel/ipc.h"
 #include "../../kernel/scheduler.h"
 
@@ -56,6 +57,11 @@ int osaura_windows_ipc64_send(uint32_t sender_task, uint32_t channel_id,
                               uint32_t type, const void *payload, uint32_t bytes);
 int osaura_windows_ipc64_receive(uint32_t receiver_task, uint32_t channel_id,
                                  osaura_ipc_message *message);
+#ifndef OSAURA_RUNTIME64_SOURCE
+#define osaura_windows_ipc64_receive(receiver_task, channel_id, message) \
+    (memset((message), 0, sizeof(*(message))), \
+     osaura_windows_ipc64_receive((receiver_task), (channel_id), (message)))
+#endif
 uint32_t osaura_windows_ipc64_pending(uint32_t channel_id);
 
 int osaura_windows_input64_init(void);
