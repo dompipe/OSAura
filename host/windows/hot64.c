@@ -172,14 +172,14 @@ static int hot_ipc(void *context, void *request) {
     if (!q) return -1;
     switch (shadow) {
         case OSAURA_IPC_SEND: return osaura_windows_ipc64_send(q->actor_task, q->channel_id, q->type, q->payload, q->bytes) == 0 ? 1 : -2;
-        case OSAURA_IPC_RECEIVE: return osaura_windows_ipc64_receive_raw(q->actor_task, q->channel_id, q->message);
+        case OSAURA_IPC_RECEIVE: return osaura_windows_ipc64_receive(q->actor_task, q->channel_id, q->message);
         case OSAURA_IPC_PENDING: q->value = osaura_windows_ipc64_pending(q->channel_id); return 1;
         case OSAURA_IPC_OWNER: return -4;
         case OSAURA_IPC_CREATE: return osaura_windows_ipc64_create(q->actor_task, &q->channel_id) == 0 ? 1 : -2;
         case OSAURA_IPC_CLOSE: return osaura_windows_ipc64_close(q->actor_task, q->channel_id) == 0 ? 1 : -2;
         case OSAURA_IPC_SENDRECV: {
             int rc = osaura_windows_ipc64_send(q->actor_task, q->channel_id, q->type, q->payload, q->bytes);
-            return rc == 0 ? osaura_windows_ipc64_receive_raw(q->actor_task, q->channel_id, q->message) : -2;
+            return rc == 0 ? osaura_windows_ipc64_receive(q->actor_task, q->channel_id, q->message) : -2;
         }
         case OSAURA_IPC_POLL: q->value = osaura_windows_ipc64_pending(q->channel_id); return 1;
         default: return -3;
@@ -239,8 +239,7 @@ int osaura_windows_hot64_self_test(void) {
     osaura_ipc_request ipc = {0};
     ipc.actor_task = 2u;
     if (osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_IPC, OSAURA_IPC_CREATE), &ipc) <= 0) return -6;
-    uint32_t channel = ipc.channel_id;
-    if (osaura_windows_ipc64_close(2u, channel) != 0) return -7;
+    if (osaura_windows_ipc64_close(2u, ipc.channel_id) != 0) return -7;
 
     osaura_windows_input64_hot_request input = {0};
     if (osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_INPUT, OSAURA_WINDOWS_INPUT64_HOT_READY), &input) <= 0) return -8;
