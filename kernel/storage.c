@@ -143,7 +143,7 @@ uint32_t osaura_block_device_count(void) {
     return g_device_count;
 }
 
-int osaura_block_info(uint32_t device_id, osaura_block_info *info) {
+int osaura_block_get_info(uint32_t device_id, osaura_block_info *info) {
     if (!info || device_id >= OSAURA_BLOCK_DEVICE_MAX || !g_devices[device_id].used)
         return -1;
     zero_bytes(info, sizeof *info);
