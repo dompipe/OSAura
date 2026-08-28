@@ -32,9 +32,12 @@ jobs:
 
       - name: Validate kernel handoff linkage
         run: |
-          nm build/bootx64.so | grep -q 'osaura_kernel_main'
-          objdump -h build/bootx64.so | grep -q '.rodata'
-          strings build/bootx64.so | grep -q 'OSAURA KERNEL'
+          nm build/bootx64.so > build/symbols.txt
+          objdump -h build/bootx64.so > build/sections.txt
+          strings build/bootx64.so > build/strings.txt
+          grep -q 'osaura_kernel_main' build/symbols.txt
+          grep -q '.rodata' build/sections.txt
+          grep -q 'OSAURA KERNEL' build/strings.txt
 
       - name: Build USB image
         run: make image
