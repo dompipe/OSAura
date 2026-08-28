@@ -11,9 +11,17 @@ typedef struct {
     uint32_t flags;
     uint64_t offset;
     uint8_t used;
+    uint8_t busy;
+    uint8_t bounce[OSAURA_VFS_BOUNCE_MAX];
 } osaura_vfs_handle;
 
 static osaura_vfs_handle g_handles[OSAURA_VFS_HANDLE_MAX];
+
+static void copy_bytes(void *dst, const void *src, uint32_t bytes) {
+    uint8_t *d = (uint8_t *)dst;
+    const uint8_t *s = (const uint8_t *)src;
+    while (bytes--) *d++ = *s++;
+}
 
 static osaura_vfs_handle *handle_at(uint32_t subject, uint32_t handle) {
     if (handle >= OSAURA_VFS_HANDLE_MAX || !g_handles[handle].used) return 0;
@@ -49,6 +57,7 @@ static int raw_open(osaura_vfs_request *r) {
         g_handles[i].device_id = r->device_id;
         g_handles[i].flags = r->flags;
         g_handles[i].offset = 0u;
+        g_handles[i].busy = 0u;
         g_handles[i].used = 1u;
         r->handle = i;
         r->offset = 0u;
@@ -60,46 +69,130 @@ static int raw_open(osaura_vfs_request *r) {
 
 static int raw_read(osaura_vfs_request *r) {
     if (!r || !r->buffer || r->bytes == 0u) return -1;
+    r->transferred = 0u;
     if (require_right(r->subject, OSAURA_CAP_VFS_READ) != 0) return -9;
     osaura_vfs_handle *h = handle_at(r->subject, r->handle);
     if (!h || !(h->flags & OSAURA_VFS_OPEN_READ)) return -2;
+    if (h->busy) return -8;
 
     osaura_block_info info;
     uint64_t size;
     if (device_size(h->device_id, &info, &size) != 0) return -3;
-    if ((h->offset % info.block_size) != 0u || (r->bytes % info.block_size) != 0u) return -4;
-    if (h->offset >= size || r->bytes > size - h->offset) return -5;
+    if (h->offset >= size) {
+        r->offset = h->offset;
+        return 0;
+    }
 
-    uint64_t lba = h->offset / info.block_size;
-    uint32_t blocks = r->bytes / info.block_size;
-    int rc = osaura_block_read(h->device_id, lba, blocks, r->buffer);
-    if (rc != 0) return rc;
-    h->offset += r->bytes;
+    uint64_t available64 = size - h->offset;
+    uint32_t remaining = r->bytes;
+    if (available64 < remaining) remaining = (uint32_t)available64;
+
+    h->busy = 1u;
+    uint8_t *out = (uint8_t *)r->buffer;
+    uint64_t pos = h->offset;
+    uint32_t done = 0u;
+    int rc = 0;
+
+    while (remaining) {
+        uint32_t in_block = (uint32_t)(pos % info.block_size);
+        if (in_block == 0u && remaining >= info.block_size) {
+            uint32_t blocks = remaining / info.block_size;
+            uint32_t span = blocks * info.block_size;
+            rc = osaura_block_read(h->device_id, pos / info.block_size, blocks, out + done);
+            if (rc != 0) break;
+            pos += span;
+            done += span;
+            remaining -= span;
+            continue;
+        }
+
+        if (info.block_size > OSAURA_VFS_BOUNCE_MAX) {
+            rc = -6;
+            break;
+        }
+        rc = osaura_block_read(h->device_id, pos / info.block_size, 1u, h->bounce);
+        if (rc != 0) break;
+        uint32_t chunk = info.block_size - in_block;
+        if (chunk > remaining) chunk = remaining;
+        copy_bytes(out + done, h->bounce + in_block, chunk);
+        pos += chunk;
+        done += chunk;
+        remaining -= chunk;
+    }
+
+    h->offset = pos;
+    h->busy = 0u;
     r->offset = h->offset;
-    r->transferred = r->bytes;
-    return 0;
+    r->transferred = done;
+    return rc;
 }
 
 static int raw_write(osaura_vfs_request *r) {
     if (!r || !r->const_buffer || r->bytes == 0u) return -1;
+    r->transferred = 0u;
     if (require_right(r->subject, OSAURA_CAP_VFS_WRITE) != 0) return -9;
     osaura_vfs_handle *h = handle_at(r->subject, r->handle);
     if (!h || !(h->flags & OSAURA_VFS_OPEN_WRITE)) return -2;
+    if (h->busy) return -8;
 
     osaura_block_info info;
     uint64_t size;
     if (device_size(h->device_id, &info, &size) != 0) return -3;
-    if ((h->offset % info.block_size) != 0u || (r->bytes % info.block_size) != 0u) return -4;
-    if (h->offset >= size || r->bytes > size - h->offset) return -5;
+    if (h->offset >= size) {
+        r->offset = h->offset;
+        return 0;
+    }
 
-    uint64_t lba = h->offset / info.block_size;
-    uint32_t blocks = r->bytes / info.block_size;
-    int rc = osaura_block_write(h->device_id, lba, blocks, r->const_buffer);
-    if (rc != 0) return rc;
-    h->offset += r->bytes;
+    uint64_t available64 = size - h->offset;
+    uint32_t remaining = r->bytes;
+    if (available64 < remaining) remaining = (uint32_t)available64;
+
+    h->busy = 1u;
+    const uint8_t *in = (const uint8_t *)r->const_buffer;
+    uint64_t pos = h->offset;
+    uint32_t done = 0u;
+    int rc = 0;
+
+    while (remaining) {
+        uint32_t in_block = (uint32_t)(pos % info.block_size);
+        if (in_block == 0u && remaining >= info.block_size) {
+            uint32_t blocks = remaining / info.block_size;
+            uint32_t span = blocks * info.block_size;
+            rc = osaura_block_write(h->device_id, pos / info.block_size, blocks, in + done);
+            if (rc != 0) break;
+            pos += span;
+            done += span;
+            remaining -= span;
+            continue;
+        }
+
+        if (info.block_size > OSAURA_VFS_BOUNCE_MAX) {
+            rc = -6;
+            break;
+        }
+        if (!(info.capabilities & OSAURA_BLOCK_CAP_READ)) {
+            rc = -7;
+            break;
+        }
+
+        uint64_t lba = pos / info.block_size;
+        rc = osaura_block_read(h->device_id, lba, 1u, h->bounce);
+        if (rc != 0) break;
+        uint32_t chunk = info.block_size - in_block;
+        if (chunk > remaining) chunk = remaining;
+        copy_bytes(h->bounce + in_block, in + done, chunk);
+        rc = osaura_block_write(h->device_id, lba, 1u, h->bounce);
+        if (rc != 0) break;
+        pos += chunk;
+        done += chunk;
+        remaining -= chunk;
+    }
+
+    h->offset = pos;
+    h->busy = 0u;
     r->offset = h->offset;
-    r->transferred = r->bytes;
-    return 0;
+    r->transferred = done;
+    return rc;
 }
 
 static int raw_seek(osaura_vfs_request *r) {
@@ -107,6 +200,7 @@ static int raw_seek(osaura_vfs_request *r) {
     if (require_right(r->subject, OSAURA_CAP_VFS_READ) != 0) return -9;
     osaura_vfs_handle *h = handle_at(r->subject, r->handle);
     if (!h) return -2;
+    if (h->busy) return -8;
     osaura_block_info info;
     uint64_t size;
     if (device_size(h->device_id, &info, &size) != 0) return -3;
@@ -132,10 +226,12 @@ static int raw_close(osaura_vfs_request *r) {
     if (!r) return -1;
     osaura_vfs_handle *h = handle_at(r->subject, r->handle);
     if (!h) return -2;
+    if (h->busy) return -8;
     h->subject = 0u;
     h->device_id = 0u;
     h->flags = 0u;
     h->offset = 0u;
+    h->busy = 0u;
     h->used = 0u;
     return 0;
 }
@@ -144,6 +240,7 @@ static int raw_flush(osaura_vfs_request *r) {
     if (!r) return -1;
     osaura_vfs_handle *h = handle_at(r->subject, r->handle);
     if (!h) return -2;
+    if (h->busy) return -8;
     if ((h->flags & OSAURA_VFS_OPEN_WRITE) && require_right(r->subject, OSAURA_CAP_VFS_WRITE) != 0) return -9;
     return osaura_block_flush(h->device_id);
 }
@@ -179,6 +276,7 @@ void osaura_vfs_init(void) {
         g_handles[i].device_id = 0u;
         g_handles[i].flags = 0u;
         g_handles[i].offset = 0u;
+        g_handles[i].busy = 0u;
         g_handles[i].used = 0u;
     }
 }
@@ -205,11 +303,11 @@ int osaura_vfs_open_device_as(uint32_t subject, uint32_t device_id, uint32_t fla
 }
 int osaura_vfs_read_as(uint32_t subject, uint32_t handle, void *buffer, uint32_t bytes, uint32_t *transferred) {
     osaura_vfs_request r = {0}; r.subject = subject; r.handle = handle; r.buffer = buffer; r.bytes = bytes;
-    int rc = dispatch(OSAURA_VFS_HOT_READ, &r); if (rc == 0 && transferred) *transferred = r.transferred; return rc;
+    int rc = dispatch(OSAURA_VFS_HOT_READ, &r); if (transferred) *transferred = r.transferred; return rc;
 }
 int osaura_vfs_write_as(uint32_t subject, uint32_t handle, const void *buffer, uint32_t bytes, uint32_t *transferred) {
     osaura_vfs_request r = {0}; r.subject = subject; r.handle = handle; r.const_buffer = buffer; r.bytes = bytes;
-    int rc = dispatch(OSAURA_VFS_HOT_WRITE, &r); if (rc == 0 && transferred) *transferred = r.transferred; return rc;
+    int rc = dispatch(OSAURA_VFS_HOT_WRITE, &r); if (transferred) *transferred = r.transferred; return rc;
 }
 int osaura_vfs_seek_as(uint32_t subject, uint32_t handle, uint64_t offset) { osaura_vfs_request r = {0}; r.subject = subject; r.handle = handle; r.offset = offset; return dispatch(OSAURA_VFS_HOT_SEEK, &r); }
 int osaura_vfs_stat_as(uint32_t subject, uint32_t handle, osaura_vfs_request *request) { if (!request) return -1; request->subject = subject; request->handle = handle; return dispatch(OSAURA_VFS_HOT_STAT, request); }
