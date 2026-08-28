@@ -1,0 +1,48 @@
+name: OSAura boot CI
+
+on:
+  push:
+    paths:
+      - 'boot/**'
+      - 'scripts/make-image.sh'
+      - 'Makefile'
+      - '.github/workflows/osaura-boot-ci.yml'
+  pull_request:
+    paths:
+      - 'boot/**'
+      - 'scripts/make-image.sh'
+      - 'Makefile'
+      - '.github/workflows/osaura-boot-ci.yml'
+
+jobs:
+  build-uefi:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install UEFI image dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnu-efi mtools dosfstools
+
+      - name: Build BOOTX64.EFI
+        run: make efi
+
+      - name: Build USB image
+        run: make image
+
+      - name: Validate artifacts
+        run: |
+          test -s build/BOOTX64.EFI
+          test -s build/osaura.img
+          file build/BOOTX64.EFI
+          mdir -i build/osaura.img ::/EFI/BOOT
+          mdir -i build/osaura.img ::/OSAURA
+
+      - name: Upload boot artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: osaura-uefi-x86_64
+          path: |
+            build/BOOTX64.EFI
+            build/osaura.img
