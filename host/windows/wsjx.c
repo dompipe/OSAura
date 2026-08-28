@@ -45,6 +45,15 @@ static void trim_line(char *line) {
         line[--n] = 0;
 }
 
+static int copy_path(char *dst, size_t capacity, const char *src) {
+    size_t n;
+    if (!dst || !capacity || !src) return -1;
+    n = strlen(src);
+    if (n >= capacity) return -2;
+    memcpy(dst, src, n + 1u);
+    return 0;
+}
+
 static void print_banner(const wsjx_state *state) {
     puts("WSJX - WINDOWS SUBSYSTEM FOR JX");
     printf("VERSION: %s\n", WSJX_VERSION);
@@ -105,10 +114,9 @@ static int load_module(wsjx_state *state, const char *path) {
     size_t got = fread(head, 1, sizeof head, f);
     fclose(f);
     if (!got) return -4;
+    if (copy_path(state->loaded_path, sizeof state->loaded_path, path) != 0) return -5;
 
     state->loaded_bytes = (uint32_t)size;
-    strncpy(state->loaded_path, path, sizeof state->loaded_path - 1u);
-    state->loaded_path[sizeof state->loaded_path - 1u] = 0;
 
     printf("LOADED: %s\n", state->loaded_path);
     printf("BYTES: %u\n", state->loaded_bytes);
