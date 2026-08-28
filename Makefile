@@ -20,6 +20,8 @@ SECURITY_POLICY_OBJ := $(BUILD)/security-policy.o
 HOT_SHADOW_OBJ := $(BUILD)/hot-shadow.o
 STORAGE_OBJ := $(BUILD)/storage.o
 IPC_OBJ := $(BUILD)/ipc.o
+PROCESSOR_BUS_OBJ := $(BUILD)/processor-bus.o
+PROCESSOR_BUS_SCHED_OBJ := $(BUILD)/processor-bus-scheduler.o
 JX_RUNTIME_OBJ := $(BUILD)/jx-runtime.o
 JX_LIVE_OBJ := $(BUILD)/jx-live.o
 ARCH_OBJ := $(BUILD)/x86_64.o
@@ -113,6 +115,12 @@ $(STORAGE_OBJ): kernel/storage.c kernel/storage.h kernel/hot-shadow.h kernel/sec
 $(IPC_OBJ): kernel/ipc.c kernel/ipc.h kernel/hot-shadow.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
+$(PROCESSOR_BUS_OBJ): kernel/processor-bus.c kernel/processor-bus.h | $(BUILD)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
+$(PROCESSOR_BUS_SCHED_OBJ): kernel/processor-bus-scheduler.c kernel/processor-bus-scheduler.h kernel/processor-bus.h kernel/scheduler.h | $(BUILD)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
 $(JX_RUNTIME_OBJ): runtime/jx/jx-runtime.c runtime/jx/jx-live-tail.c runtime/jx/jx-runtime.h | $(BUILD)
 	cat runtime/jx/jx-runtime.c runtime/jx/jx-live-tail.c | \
 		$(CC) $(KERNEL_CFLAGS) -Dosaura_jx_runtime_task=osaura_jx_runtime_task_legacy \
@@ -124,8 +132,8 @@ $(JX_LIVE_OBJ): runtime/jx/jx-live.c runtime/jx/jx-runtime.h kernel/security.h |
 $(ARCH_OBJ): kernel/x86_64.S | $(BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
 
-$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(USB_HOT_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(WIFI_HOT_OBJ) $(CLOCK_HOT_OBJ) $(MEMORY_HOT_OBJ) $(TASK_HOT_OBJ) $(VFS_OBJ) $(BOOK_HOT_OBJ) $(SECURITY_OBJ) $(SECURITY_POLICY_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
-	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(USB_HOT_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(WIFI_HOT_OBJ) $(CLOCK_HOT_OBJ) $(MEMORY_HOT_OBJ) $(TASK_HOT_OBJ) $(VFS_OBJ) $(BOOK_HOT_OBJ) $(SECURITY_OBJ) $(SECURITY_POLICY_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
+$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(USB_HOT_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(WIFI_HOT_OBJ) $(CLOCK_HOT_OBJ) $(MEMORY_HOT_OBJ) $(TASK_HOT_OBJ) $(VFS_OBJ) $(BOOK_HOT_OBJ) $(SECURITY_OBJ) $(SECURITY_POLICY_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(PROCESSOR_BUS_OBJ) $(PROCESSOR_BUS_SCHED_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
+	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(USB_HOT_OBJ) $(E1000_OBJ) $(NET_OBJ) $(WIFI_OBJ) $(WIFI_HOT_OBJ) $(CLOCK_HOT_OBJ) $(MEMORY_HOT_OBJ) $(TASK_HOT_OBJ) $(VFS_OBJ) $(BOOK_HOT_OBJ) $(SECURITY_OBJ) $(SECURITY_POLICY_OBJ) $(HOT_SHADOW_OBJ) $(STORAGE_OBJ) $(IPC_OBJ) $(PROCESSOR_BUS_OBJ) $(PROCESSOR_BUS_SCHED_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
 
 $(EFI): $(SO)
 	$(OBJCOPY) \
