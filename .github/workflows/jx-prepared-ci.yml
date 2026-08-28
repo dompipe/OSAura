@@ -14,3 +14,7 @@ jobs:
         run: cc -std=c11 -Wall -Wextra -Werror -pedantic -Iruntime/jx tests/jx-prepared-test.c runtime/jx/jx-prepared.c -o /tmp/jx-prepared-test
       - name: Run prepared runtime test
         run: /tmp/jx-prepared-test
+      - name: Build live generation test
+        run: cc -std=c11 -Wall -Wextra -Werror -pedantic -Iruntime/jx tests/jx-prepared-live-test.c runtime/jx/jx-prepared.c runtime/jx/jx-prepared-live.c -o /tmp/jx-prepared-live-test
+      - name: Run live generation test
+        run: /tmp/jx-prepared-live-test
