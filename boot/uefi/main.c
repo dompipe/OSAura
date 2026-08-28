@@ -8,6 +8,8 @@ extern void osaura_kernel_main(const osaura_boot_info *boot);
 /* Kernel scheduler admission reads these after ExitBootServices. */
 uint64_t osaura_jx_boot_book;
 uint64_t osaura_jx_boot_book_size;
+uint64_t osaura_jx_next_book;
+uint64_t osaura_jx_next_book_size;
 
 static EFI_GUID g_gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 
@@ -42,9 +44,11 @@ static EFI_STATUS locate_framebuffer(EFI_SYSTEM_TABLE *st, osaura_boot_info *boo
     return EFI_SUCCESS;
 }
 
-static EFI_STATUS load_jx_book(EFI_HANDLE image_handle,
-                               EFI_SYSTEM_TABLE *st,
-                               osaura_boot_info *boot) {
+static EFI_STATUS load_book_file(EFI_HANDLE image_handle,
+                                 EFI_SYSTEM_TABLE *st,
+                                 CHAR16 *path,
+                                 uint64_t *address_out,
+                                 uint64_t *size_out) {
     EFI_LOADED_IMAGE *loaded_image = NULL;
     EFI_STATUS status = uefi_call_wrapper(
         st->BootServices->HandleProtocol,
@@ -59,14 +63,7 @@ static EFI_STATUS load_jx_book(EFI_HANDLE image_handle,
     if (!root) return EFI_NOT_FOUND;
 
     EFI_FILE_HANDLE file = NULL;
-    status = uefi_call_wrapper(
-        root->Open,
-        5,
-        root,
-        &file,
-        L"\\OSAURA\\runtime.64B",
-        EFI_FILE_MODE_READ,
-        0);
+    status = uefi_call_wrapper(root->Open, 5, root, &file, path, EFI_FILE_MODE_READ, 0);
     if (EFI_ERROR(status) || !file) {
         uefi_call_wrapper(root->Close, 1, root);
         return EFI_NOT_FOUND;
@@ -82,12 +79,7 @@ static EFI_STATUS load_jx_book(EFI_HANDLE image_handle,
 
     UINTN bytes = (UINTN)info->FileSize;
     VOID *book = NULL;
-    status = uefi_call_wrapper(
-        st->BootServices->AllocatePool,
-        3,
-        EfiLoaderData,
-        bytes,
-        &book);
+    status = uefi_call_wrapper(st->BootServices->AllocatePool, 3, EfiLoaderData, bytes, &book);
     if (!EFI_ERROR(status)) {
         UINTN read_bytes = bytes;
         status = uefi_call_wrapper(file->Read, 3, file, &read_bytes, book);
@@ -103,10 +95,32 @@ static EFI_STATUS load_jx_book(EFI_HANDLE image_handle,
         return status;
     }
 
-    boot->jx_book = (uint64_t)(uintptr_t)book;
-    boot->jx_book_size = (uint64_t)bytes;
+    *address_out = (uint64_t)(uintptr_t)book;
+    *size_out = (uint64_t)bytes;
+    return EFI_SUCCESS;
+}
+
+static EFI_STATUS load_jx_books(EFI_HANDLE image_handle,
+                                EFI_SYSTEM_TABLE *st,
+                                osaura_boot_info *boot) {
+    EFI_STATUS status = load_book_file(image_handle,
+                                       st,
+                                       L"\\OSAURA\\runtime.64B",
+                                       &boot->jx_book,
+                                       &boot->jx_book_size);
+    if (EFI_ERROR(status)) return status;
+
+    status = load_book_file(image_handle,
+                            st,
+                            L"\\OSAURA\\runtime-next.64B",
+                            &boot->jx_next_book,
+                            &boot->jx_next_book_size);
+    if (EFI_ERROR(status)) return status;
+
     osaura_jx_boot_book = boot->jx_book;
     osaura_jx_boot_book_size = boot->jx_book_size;
+    osaura_jx_next_book = boot->jx_next_book;
+    osaura_jx_next_book_size = boot->jx_next_book_size;
     return EFI_SUCCESS;
 }
 
@@ -171,7 +185,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
 
     uefi_call_wrapper(system_table->ConOut->Reset, 2, system_table->ConOut, FALSE);
     uefi_call_wrapper(system_table->ConOut->ClearScreen, 1, system_table->ConOut);
-    Print(L"\r\nOSAura loader 0.3-dev\r\n");
+    Print(L"\r\nOSAura loader 0.4-dev\r\n");
     Print(L"Preparing native kernel handoff...\r\n");
 
     osaura_boot_info boot;
@@ -184,12 +198,13 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_tab
         return status;
     }
 
-    status = load_jx_book(image_handle, system_table, &boot);
+    status = load_jx_books(image_handle, system_table, &boot);
     if (EFI_ERROR(status)) {
-        Print(L"JX runtime Book unavailable: %r\r\n", status);
+        Print(L"JX runtime Books unavailable: %r\r\n", status);
         return status;
     }
     Print(L"JX runtime Book loaded: %lu bytes\r\n", boot.jx_book_size);
+    Print(L"JX candidate Book loaded: %lu bytes\r\n", boot.jx_next_book_size);
 
     EFI_MEMORY_DESCRIPTOR *map = NULL;
     UINTN map_capacity = 0;
