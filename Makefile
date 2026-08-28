@@ -2,6 +2,7 @@ BUILD := build
 EFI := $(BUILD)/BOOTX64.EFI
 LOADER_OBJ := $(BUILD)/loader.o
 KERNEL_OBJ := $(BUILD)/kernel.o
+ARCH_OBJ := $(BUILD)/x86_64.o
 SO := $(BUILD)/bootx64.so
 
 CC ?= gcc
@@ -37,8 +38,11 @@ $(LOADER_OBJ): boot/uefi/main.c kernel/boot-info.h | $(BUILD)
 $(KERNEL_OBJ): kernel/kernel.c kernel/boot-info.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(SO): $(LOADER_OBJ) $(KERNEL_OBJ)
-	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) -o $@ -lefi -lgnuefi
+$(ARCH_OBJ): kernel/x86_64.S | $(BUILD)
+	$(CC) $(COMMON_FLAGS) -c $< -o $@
+
+$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(ARCH_OBJ)
+	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
 
 $(EFI): $(SO)
 	$(OBJCOPY) \
