@@ -21,6 +21,10 @@ typedef struct {
     uint8_t ready;
 } osaura_task;
 
+/* Set by the UEFI loader before ExitBootServices. */
+extern uint64_t osaura_jx_boot_book;
+extern uint64_t osaura_jx_boot_book_size;
+
 static osaura_task g_tasks[OSAURA_TASK_MAX];
 static uint64_t g_jx_stack[TASK_STACK_QWORDS] __attribute__((aligned(16)));
 static uint64_t g_idle_stack[TASK_STACK_QWORDS] __attribute__((aligned(16)));
@@ -87,11 +91,20 @@ void osaura_scheduler_init(void) {
     /* Task zero is the bootstrap shell. Its frame is captured by IRQ0. */
     g_tasks[0].ready = 1u;
 
-    /* Task one is the native JX applied-runtime service. */
-    g_tasks[1].saved_rsp = build_initial_frame(g_jx_stack,
-                                               TASK_STACK_QWORDS,
-                                               osaura_jx_runtime_task);
-    g_tasks[1].ready = g_tasks[1].saved_rsp != 0;
+    /*
+     * Task one is admitted only after the boot-loaded compiled Book passes the
+     * OSAura .64B verifier. The runtime therefore never executes an unverified
+     * applied page merely because a scheduler slot exists.
+     */
+    int jx_book_ok = osaura_jx_runtime_load_book(
+                         (const void *)(uintptr_t)osaura_jx_boot_book,
+                         osaura_jx_boot_book_size) == 0;
+    if (jx_book_ok) {
+        g_tasks[1].saved_rsp = build_initial_frame(g_jx_stack,
+                                                   TASK_STACK_QWORDS,
+                                                   osaura_jx_runtime_task);
+    }
+    g_tasks[1].ready = jx_book_ok && g_tasks[1].saved_rsp != 0;
 
     /* Task two is the kernel idle thread used when no service work is needed. */
     g_tasks[2].saved_rsp = build_initial_frame(g_idle_stack,
