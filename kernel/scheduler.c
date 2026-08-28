@@ -163,8 +163,11 @@ static int hot_get_fg(void *context, void *opaque) {
     r->task_id = g_foreground[r->terminal_id]; return 0;
 }
 static int hot_bg_count(void *context, void *opaque) {
-    (void)context; osaura_job_hot_request *r = (osaura_job_hot_request *)opaque;
-    if (!r) return -1; r->value = g_background_count; return 0;
+    (void)context;
+    osaura_job_hot_request *r = (osaura_job_hot_request *)opaque;
+    if (!r) return -1;
+    r->value = g_background_count;
+    return 0;
 }
 static int hot_bg_at(void *context, void *opaque) {
     (void)context; osaura_job_hot_request *r = (osaura_job_hot_request *)opaque;
