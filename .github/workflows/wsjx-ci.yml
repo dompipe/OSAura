@@ -13,11 +13,19 @@ on:
       - 'host/windows/vfs64.h'
       - 'host/windows/runtime64.c'
       - 'host/windows/runtime64.h'
+      - 'host/windows/hot64.c'
+      - 'host/windows/hot64.h'
+      - 'tests/wsjx64-hot-test.c'
       - 'include/osaura/socket.h'
       - 'kernel/socket.c'
       - 'kernel/security.h'
+      - 'kernel/hot-shadow.c'
+      - 'kernel/hot-shadow.h'
       - 'kernel/ipc.h'
       - 'kernel/scheduler.h'
+      - 'kernel/clock-hot.h'
+      - 'kernel/memory-hot.h'
+      - 'kernel/task-hot.h'
       - 'kernel/display.c'
       - 'kernel/display.h'
       - 'runtime/jx/jx11-display.c'
@@ -35,11 +43,19 @@ on:
       - 'host/windows/vfs64.h'
       - 'host/windows/runtime64.c'
       - 'host/windows/runtime64.h'
+      - 'host/windows/hot64.c'
+      - 'host/windows/hot64.h'
+      - 'tests/wsjx64-hot-test.c'
       - 'include/osaura/socket.h'
       - 'kernel/socket.c'
       - 'kernel/security.h'
+      - 'kernel/hot-shadow.c'
+      - 'kernel/hot-shadow.h'
       - 'kernel/ipc.h'
       - 'kernel/scheduler.h'
+      - 'kernel/clock-hot.h'
+      - 'kernel/memory-hot.h'
+      - 'kernel/task-hot.h'
       - 'kernel/display.c'
       - 'kernel/display.h'
       - 'runtime/jx/jx11-display.c'
@@ -60,6 +76,21 @@ jobs:
       - name: Compile runtime64 core
         shell: cmd
         run: cl /nologo /W4 /WX /c host\windows\runtime64.c /DOSAURA_RUNTIME64_SOURCE /Iinclude /Ikernel /Iruntime\jx /Foruntime64.obj
+
+      - name: Build WSJX64 hot conformance test
+        shell: cmd
+        run: cl /nologo /W4 /WX tests\wsjx64-hot-test.c host\windows\hot64.c host\windows\security-host.c kernel\hot-shadow.c runtime64.obj /Iinclude /Ikernel /Ihost\windows /link /MACHINE:X64 /OUT:wsjx64-hot-test.exe
+
+      - name: Run WSJX64 hot conformance test
+        shell: powershell
+        run: |
+          .\wsjx64-hot-test.exe | Tee-Object -FilePath wsjx64-hot.txt
+          $hot = Get-Content wsjx64-hot.txt -Raw
+          if ($hot -notmatch 'WSJX64 HOT BANKS: PASS') { throw 'hot-bank self-test failed' }
+          if ($hot -notmatch 'CLOCK C0-C7: BOUND') { throw 'CLOCK hot bank missing' }
+          if ($hot -notmatch 'MEMORY C8-CF: BOUND') { throw 'MEMORY hot bank missing' }
+          if ($hot -notmatch 'TASK D0-D7: BOUND') { throw 'TASK hot bank missing' }
+          if ($hot -notmatch 'F0-FF: UNASSIGNED') { throw 'reserved hot banks were consumed' }
 
       - name: Build wsjx64.exe
         shell: cmd
