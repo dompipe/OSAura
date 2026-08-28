@@ -4,6 +4,7 @@ LOADER_OBJ := $(BUILD)/loader.o
 KERNEL_OBJ := $(BUILD)/kernel.o
 MM_OBJ := $(BUILD)/mm.o
 SCHED_OBJ := $(BUILD)/scheduler.o
+JX_RUNTIME_OBJ := $(BUILD)/jx-runtime.o
 ARCH_OBJ := $(BUILD)/x86_64.o
 SO := $(BUILD)/bootx64.so
 
@@ -21,9 +22,10 @@ COMMON_FLAGS := -fpic -ffreestanding -fno-stack-protector -fno-stack-check \
 LOADER_CFLAGS := $(COMMON_FLAGS) -fshort-wchar -maccumulate-outgoing-args \
 	-I$(EFI_INC) -I$(EFI_ARCH_INC) -I$(EFI_INC)/protocol
 # The current preemptive scheduler saves the complete integer context. Keep
-# freestanding kernel C inside that ABI: no host CET entry markers and no
-# implicit MMX/SSE/AVX state until OSAura has an explicit extended-state save.
-KERNEL_CFLAGS := $(COMMON_FLAGS) -fcf-protection=none -mgeneral-regs-only -Ikernel
+# freestanding kernel/runtime C inside that ABI: no host CET entry markers and
+# no implicit MMX/SSE/AVX state until OSAura has explicit extended-state save.
+KERNEL_CFLAGS := $(COMMON_FLAGS) -fcf-protection=none -mgeneral-regs-only \
+	-Ikernel -Iruntime/jx
 
 LDFLAGS := -nostdlib -znocombreloc -T $(EFI_LDS) -shared -Bsymbolic \
 	-L/usr/lib -L/usr/lib64
@@ -40,20 +42,23 @@ $(BUILD):
 $(LOADER_OBJ): boot/uefi/main.c kernel/boot-info.h | $(BUILD)
 	$(CC) $(LOADER_CFLAGS) -c $< -o $@
 
-$(KERNEL_OBJ): kernel/kernel.c kernel/boot-info.h kernel/mm.h kernel/scheduler.h | $(BUILD)
+$(KERNEL_OBJ): kernel/kernel.c kernel/boot-info.h kernel/mm.h kernel/scheduler.h runtime/jx/jx-runtime.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(MM_OBJ): kernel/mm.c kernel/mm.h kernel/boot-info.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(SCHED_OBJ): kernel/scheduler.c kernel/scheduler.h | $(BUILD)
+$(SCHED_OBJ): kernel/scheduler.c kernel/scheduler.h runtime/jx/jx-runtime.h | $(BUILD)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
+$(JX_RUNTIME_OBJ): runtime/jx/jx-runtime.c runtime/jx/jx-runtime.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(ARCH_OBJ): kernel/x86_64.S | $(BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
 
-$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(ARCH_OBJ)
-	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
+$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(JX_RUNTIME_OBJ) $(ARCH_OBJ)
+	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(JX_RUNTIME_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
 
 $(EFI): $(SO)
 	$(OBJCOPY) \
