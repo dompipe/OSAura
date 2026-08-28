@@ -4,6 +4,7 @@ LOADER_OBJ := $(BUILD)/loader.o
 KERNEL_OBJ := $(BUILD)/kernel.o
 MM_OBJ := $(BUILD)/mm.o
 SCHED_OBJ := $(BUILD)/scheduler.o
+USB_KBD_OBJ := $(BUILD)/usb-keyboard.o
 JX_RUNTIME_OBJ := $(BUILD)/jx-runtime.o
 ARCH_OBJ := $(BUILD)/x86_64.o
 SO := $(BUILD)/bootx64.so
@@ -42,7 +43,7 @@ $(BUILD):
 $(LOADER_OBJ): boot/uefi/main.c kernel/boot-info.h | $(BUILD)
 	$(CC) $(LOADER_CFLAGS) -c $< -o $@
 
-$(KERNEL_OBJ): kernel/kernel.c kernel/boot-info.h kernel/mm.h kernel/scheduler.h runtime/jx/jx-runtime.h | $(BUILD)
+$(KERNEL_OBJ): kernel/kernel.c kernel/boot-info.h kernel/mm.h kernel/scheduler.h kernel/usb-keyboard.h runtime/jx/jx-runtime.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(MM_OBJ): kernel/mm.c kernel/mm.h kernel/boot-info.h | $(BUILD)
@@ -51,14 +52,17 @@ $(MM_OBJ): kernel/mm.c kernel/mm.h kernel/boot-info.h | $(BUILD)
 $(SCHED_OBJ): kernel/scheduler.c kernel/scheduler.h runtime/jx/jx-runtime.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
+$(USB_KBD_OBJ): kernel/usb-keyboard.c kernel/usb-keyboard.h kernel/mm.h | $(BUILD)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
 $(JX_RUNTIME_OBJ): runtime/jx/jx-runtime.c runtime/jx/jx-runtime.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(ARCH_OBJ): kernel/x86_64.S | $(BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
 
-$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(JX_RUNTIME_OBJ) $(ARCH_OBJ)
-	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(JX_RUNTIME_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
+$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_KBD_OBJ) $(JX_RUNTIME_OBJ) $(ARCH_OBJ)
+	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_KBD_OBJ) $(JX_RUNTIME_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
 
 $(EFI): $(SO)
 	$(OBJCOPY) \
