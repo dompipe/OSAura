@@ -1,0 +1,37 @@
+name: OSAura Windows socket CI
+
+on:
+  push:
+    paths:
+      - 'include/osaura/socket.h'
+      - 'kernel/socket.c'
+      - 'host/windows/socket-winsock.c'
+      - 'host/windows/socket-winsock.h'
+      - 'host/windows/socket-winsock-smoke.c'
+      - '.github/workflows/windows-socket-ci.yml'
+  pull_request:
+    paths:
+      - 'include/osaura/socket.h'
+      - 'kernel/socket.c'
+      - 'host/windows/socket-winsock.c'
+      - 'host/windows/socket-winsock.h'
+      - 'host/windows/socket-winsock-smoke.c'
+      - '.github/workflows/windows-socket-ci.yml'
+
+jobs:
+  winsock:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile neutral socket core
+        shell: cmd
+        run: cl /nologo /W4 /WX /c kernel\socket.c /Iinclude /Ikernel /Fobuild-socket-core.obj
+
+      - name: Build Winsock smoke test
+        shell: cmd
+        run: cl /nologo /W4 /WX host\windows\socket-winsock.c host\windows\socket-winsock-smoke.c /Iinclude /link Ws2_32.lib /OUT:osaura-winsock-smoke.exe
+
+      - name: Run Winsock smoke test
+        shell: cmd
+        run: osaura-winsock-smoke.exe
