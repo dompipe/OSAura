@@ -37,4 +37,10 @@ int osaura_display_blit_xrgb(const osaura_display_rect *dst,
                              const uint32_t *src,
                              uint32_t src_stride_pixels);
 
+/* Backend-neutral damage tracking. Drawing expands one aggregate dirty region.
+ * A presenter consumes it after copying the changed pixels to the device/window. */
+int osaura_display_dirty_peek(osaura_display_rect *rect);
+int osaura_display_dirty_take(osaura_display_rect *rect);
+void osaura_display_dirty_all(void);
+
 #endif
