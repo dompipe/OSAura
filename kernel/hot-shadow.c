@@ -3,6 +3,8 @@
 #include "wifi-hot.h"
 #include "clock-hot.h"
 #include "memory-hot.h"
+#include "task-hot.h"
+#include "book-hot.h"
 
 #include <stdint.h>
 
@@ -20,6 +22,8 @@ void osaura_hot_init(void) {
     (void)osaura_wifi_hot_bind();
     (void)osaura_clock_hot_bind();
     (void)osaura_memory_hot_bind();
+    (void)osaura_task_hot_bind();
+    (void)osaura_book_hot_bind();
 }
 
 static void ensure_hot_init(void) {
