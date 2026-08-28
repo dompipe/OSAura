@@ -70,7 +70,7 @@ $(USB_OBJ): kernel/usb.c kernel/usb.h | $(BUILD)
 $(USB_HOT_OBJ): kernel/usb-hot.c kernel/usb-hot.h kernel/usb.h kernel/hot-shadow.h kernel/security.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(E1000_OBJ): kernel/e1000.c kernel/e1000.h | $(BUILD)
+$(E1000_OBJ): kernel/e1000.c kernel/e1000.h kernel/hot-shadow.h kernel/security.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(NET_OBJ): kernel/net.c kernel/net.h kernel/e1000.h | $(BUILD)
