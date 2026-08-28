@@ -3,6 +3,7 @@
 #include "display-win32.h"
 #include "jx11-surface-win64.h"
 #include "../../kernel/display.h"
+#include "../../runtime/jx/jx11-window.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -18,12 +19,22 @@ static uint32_t g_width;
 static uint32_t g_height;
 static uint8_t g_class_ready;
 static uint8_t g_jx11_surfaces_ready;
+static uint8_t g_jx11_windows_ready;
 
 static const char *g_class_name = "WSJXDisplayWindow";
 
+static int32_t mouse_x(LPARAM lparam) { return (int32_t)(int16_t)LOWORD((DWORD_PTR)lparam); }
+static int32_t mouse_y(LPARAM lparam) { return (int32_t)(int16_t)HIWORD((DWORD_PTR)lparam); }
+
+static uint32_t mouse_buttons(WPARAM wparam) {
+    uint32_t buttons = 0u;
+    if (((UINT_PTR)wparam & MK_LBUTTON) != 0u) buttons |= 1u;
+    if (((UINT_PTR)wparam & MK_RBUTTON) != 0u) buttons |= 2u;
+    if (((UINT_PTR)wparam & MK_MBUTTON) != 0u) buttons |= 4u;
+    return buttons;
+}
+
 static LRESULT CALLBACK display_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-    (void)wparam;
-    (void)lparam;
     if (msg == WM_PAINT) {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(hwnd, &ps);
@@ -37,6 +48,49 @@ static LRESULT CALLBACK display_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
         }
         EndPaint(hwnd, &ps);
         return 0;
+    }
+    if (g_jx11_windows_ready) {
+        int32_t x = mouse_x(lparam);
+        int32_t y = mouse_y(lparam);
+        switch (msg) {
+            case WM_MOUSEMOVE:
+                (void)osaura_jx11_window_pointer(x, y, mouse_buttons(wparam), 0u, 0);
+                return 0;
+            case WM_LBUTTONDOWN:
+                SetCapture(hwnd);
+                (void)osaura_jx11_window_pointer(x, y, mouse_buttons(wparam), 1u, 1);
+                return 0;
+            case WM_LBUTTONUP:
+                (void)osaura_jx11_window_pointer(x, y, mouse_buttons(wparam), 1u, 0);
+                if ((mouse_buttons(wparam) & 7u) == 0u) ReleaseCapture();
+                return 0;
+            case WM_RBUTTONDOWN:
+                SetCapture(hwnd);
+                (void)osaura_jx11_window_pointer(x, y, mouse_buttons(wparam), 2u, 1);
+                return 0;
+            case WM_RBUTTONUP:
+                (void)osaura_jx11_window_pointer(x, y, mouse_buttons(wparam), 2u, 0);
+                if ((mouse_buttons(wparam) & 7u) == 0u) ReleaseCapture();
+                return 0;
+            case WM_MBUTTONDOWN:
+                SetCapture(hwnd);
+                (void)osaura_jx11_window_pointer(x, y, mouse_buttons(wparam), 4u, 1);
+                return 0;
+            case WM_MBUTTONUP:
+                (void)osaura_jx11_window_pointer(x, y, mouse_buttons(wparam), 4u, 0);
+                if ((mouse_buttons(wparam) & 7u) == 0u) ReleaseCapture();
+                return 0;
+            case WM_KEYDOWN:
+            case WM_SYSKEYDOWN:
+                (void)osaura_jx11_window_key((uint32_t)wparam, 1);
+                return 0;
+            case WM_KEYUP:
+            case WM_SYSKEYUP:
+                (void)osaura_jx11_window_key((uint32_t)wparam, 0);
+                return 0;
+            default:
+                break;
+        }
     }
     if (msg == WM_CLOSE) {
         ShowWindow(hwnd, SW_HIDE);
@@ -137,9 +191,14 @@ int osaura_windows_display_backend_install(uint32_t width, uint32_t height) {
         return -4;
     }
     g_jx11_surfaces_ready = 1u;
-    if (create_window() != 0) {
+    if (osaura_jx11_window_init() != 0) {
         osaura_windows_display_shutdown();
         return -5;
+    }
+    g_jx11_windows_ready = 1u;
+    if (create_window() != 0) {
+        osaura_windows_display_shutdown();
+        return -6;
     }
     return 0;
 }
@@ -180,6 +239,10 @@ int osaura_windows_display_pump(void) {
 }
 
 void osaura_windows_display_shutdown(void) {
+    if (g_jx11_windows_ready) {
+        osaura_jx11_window_shutdown();
+        g_jx11_windows_ready = 0u;
+    }
     if (g_jx11_surfaces_ready) {
         osaura_windows_jx11_surface_shutdown();
         g_jx11_surfaces_ready = 0u;
