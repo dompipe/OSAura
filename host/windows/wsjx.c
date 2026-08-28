@@ -1,5 +1,9 @@
 #ifdef _WIN32
 
+#if !defined(_WIN64)
+#error WSJX requires a native 64-bit Windows target (_WIN64).
+#endif
+
 #include "../../include/osaura/socket.h"
 #include "../../kernel/security.h"
 #include "../../runtime/jx/jx11-display.h"
@@ -13,10 +17,14 @@
 #include <string.h>
 #include <ctype.h>
 
-#define WSJX_VERSION "0.2-dev"
+#define WSJX_VERSION "0.3-dev"
 #define LINE_BYTES 512u
 #define WSJX_DISPLAY_WIDTH 1024u
 #define WSJX_DISPLAY_HEIGHT 768u
+
+typedef char wsjx_pointer_width_must_be_64_bits[(sizeof(void *) == 8u) ? 1 : -1];
+typedef char wsjx_uintptr_width_must_be_64_bits[(sizeof(uintptr_t) == 8u) ? 1 : -1];
+typedef char wsjx_size_width_must_be_64_bits[(sizeof(size_t) == 8u) ? 1 : -1];
 
 typedef struct {
     uint8_t jxl_mode;
@@ -58,33 +66,44 @@ static int copy_path(char *dst, size_t capacity, const char *src) {
     return 0;
 }
 
+static void print_platform(void) {
+    puts("PLATFORM: WSJX64 / AMD64");
+    printf("POINTER WIDTH: %u\n", (unsigned)(sizeof(void *) * 8u));
+    puts("USER64: WINDOWS USER API (User32.lib x64)");
+    puts("GDI64: WINDOWS GDI API (Gdi32.lib x64)");
+    puts("WINSOCK64: WINDOWS SOCKET API (Ws2_32.lib x64)");
+    puts("KERNEL64: WINDOWS NT x64 HOST MECHANISMS");
+}
+
 static void print_banner(const wsjx_state *state) {
-    puts("WSJX - WINDOWS SUBSYSTEM FOR JX");
+    puts("WSJX64 - WINDOWS SUBSYSTEM FOR JX64");
     printf("VERSION: %s\n", WSJX_VERSION);
-    puts("JX HOT ABI V4: ACTIVE");
+    print_platform();
+    puts("JX64 HOT ABI V4: ACTIVE");
     printf("MODE: %s\n", state->jxl_mode ? "JXL" : "JX");
     puts("SECURITY SUBJECT 1: ACTIVE");
-    printf("NETWORK: %s\n", state->socket_ready ? "WINSOCK BACKEND" : "UNAVAILABLE");
-    printf("JX11 DISPLAY: %s\n", state->display_ready ? "WIN32 DIB BACKEND" : "UNAVAILABLE");
+    printf("NETWORK: %s\n", state->socket_ready ? "WINSOCK64 BACKEND" : "UNAVAILABLE");
+    printf("JX11 DISPLAY: %s\n", state->display_ready ? "USER64/GDI64 DIB BACKEND" : "UNAVAILABLE");
     puts("F0-FF: RESERVED");
     puts("");
 }
 
 static void print_help(void) {
     puts("HELP                 show commands");
-    puts("ABOUT                show WSJX identity");
+    puts("ABOUT                show WSJX64 identity");
+    puts("PLATFORM             show 64-bit host mechanisms");
     puts("STATUS               show subsystem state");
     puts("MODE JX              select normal JX session mode");
     puts("MODE JXL             select JXL session mode");
     puts("CAPS                 show JX subject capabilities");
-    puts("SOCKET               open/close a JX TCP socket through Winsock");
-    puts("LOAD <path>          load a binary module into WSJX state");
+    puts("SOCKET               open/close a JX TCP socket through Winsock64");
+    puts("LOAD <path>          load a binary module into WSJX64 state");
     puts("UNLOAD               release loaded module state");
     puts("DISPLAY              show JX11 display geometry");
     puts("DISPLAY OPEN         show the JX11 Windows surface");
     puts("DISPLAY TEST         draw through JX11 and present");
     puts("CLEAR                clear the console");
-    puts("EXIT                 leave WSJX");
+    puts("EXIT                 leave WSJX64");
 }
 
 static void print_caps(void) {
@@ -156,9 +175,10 @@ static int load_module(wsjx_state *state, const char *path) {
 }
 
 static void print_status(const wsjx_state *state) {
+    puts("ARCH: AMD64 / 64-BIT ONLY");
     printf("MODE: %s\n", state->jxl_mode ? "JXL" : "JX");
-    printf("NETWORK: %s\n", state->socket_ready ? "READY" : "UNAVAILABLE");
-    printf("DISPLAY: %s\n", state->display_ready ? "JX11 WIN32 READY" : "UNAVAILABLE");
+    printf("NETWORK: %s\n", state->socket_ready ? "WINSOCK64 READY" : "UNAVAILABLE");
+    printf("DISPLAY: %s\n", state->display_ready ? "JX11 USER64/GDI64 READY" : "UNAVAILABLE");
     printf("SECURITY GENERATION: %llu\n", (unsigned long long)osaura_security_generation());
     if (state->loaded_bytes)
         printf("MODULE: %s (%u bytes)\n", state->loaded_path, state->loaded_bytes);
@@ -193,7 +213,7 @@ int main(int argc, char **argv) {
     if (argc > 1) {
         int rc = load_module(&state, argv[1]);
         if (rc != 0) {
-            fprintf(stderr, "WSJX: failed to load module (%d): %s\n", rc, argv[1]);
+            fprintf(stderr, "WSJX64: failed to load module (%d): %s\n", rc, argv[1]);
             osaura_windows_display_shutdown();
             return 2;
         }
@@ -202,7 +222,7 @@ int main(int argc, char **argv) {
     char line[LINE_BYTES];
     for (;;) {
         (void)osaura_windows_display_pump();
-        fputs("WSJX> ", stdout);
+        fputs("WSJX64> ", stdout);
         fflush(stdout);
         if (!fgets(line, sizeof line, stdin)) break;
         trim_line(line);
@@ -210,6 +230,7 @@ int main(int argc, char **argv) {
 
         if (text_equal(line, "HELP")) print_help();
         else if (text_equal(line, "ABOUT")) print_banner(&state);
+        else if (text_equal(line, "PLATFORM")) print_platform();
         else if (text_equal(line, "STATUS")) print_status(&state);
         else if (text_equal(line, "CAPS")) print_caps();
         else if (text_equal(line, "MODE JX")) { state.jxl_mode = 0u; puts("MODE: JX"); }
