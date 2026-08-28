@@ -24,6 +24,12 @@ static uint32_t scheduler_foreground(void *context) {
     return osaura_scheduler_foreground_task(g_foreground_terminal);
 }
 
+static int scheduler_is_awake(uint32_t pid, void *context) {
+    (void)context;
+    if (pid >= OSAURA_TASK_MAX || osaura_scheduler_task_state(pid) == OSAURA_TASK_UNUSED) return -1;
+    return osaura_scheduler_task_state(pid) == OSAURA_TASK_RUNNABLE ? 1 : 0;
+}
+
 static int scheduler_wake(uint32_t pid, void *context) {
     (void)context;
     return osaura_scheduler_wake(pid);
@@ -39,6 +45,7 @@ int osaura_processor_bus_bind_scheduler(uint8_t foreground_terminal) {
         scheduler_task_count,
         scheduler_is_program,
         scheduler_foreground,
+        scheduler_is_awake,
         scheduler_wake,
         scheduler_sleep
     };
