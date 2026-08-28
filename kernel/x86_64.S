@@ -47,6 +47,9 @@ osaura_arch_disable_interrupts:
     cli
     ret
 
+.global osaura_isr_anchor
+osaura_isr_anchor:
+
 .macro ISR_NOERR n
 .global osaura_isr_\n
 .type osaura_isr_\n,@function
@@ -177,20 +180,58 @@ osaura_gdt:
     .quad 0x00af9a000000ffff
     .quad 0x00cf92000000ffff
 
-.align 8
-.global osaura_isr_table
-osaura_isr_table:
-    .quad osaura_isr_0, osaura_isr_1, osaura_isr_2, osaura_isr_3
-    .quad osaura_isr_4, osaura_isr_5, osaura_isr_6, osaura_isr_7
-    .quad osaura_isr_8, osaura_isr_9, osaura_isr_10, osaura_isr_11
-    .quad osaura_isr_12, osaura_isr_13, osaura_isr_14, osaura_isr_15
-    .quad osaura_isr_16, osaura_isr_17, osaura_isr_18, osaura_isr_19
-    .quad osaura_isr_20, osaura_isr_21, osaura_isr_22, osaura_isr_23
-    .quad osaura_isr_24, osaura_isr_25, osaura_isr_26, osaura_isr_27
-    .quad osaura_isr_28, osaura_isr_29, osaura_isr_30, osaura_isr_31
-    .quad osaura_isr_32, osaura_isr_33, osaura_isr_34, osaura_isr_35
-    .quad osaura_isr_36, osaura_isr_37, osaura_isr_38, osaura_isr_39
-    .quad osaura_isr_40, osaura_isr_41, osaura_isr_42, osaura_isr_43
-    .quad osaura_isr_44, osaura_isr_45, osaura_isr_46, osaura_isr_47
+# These are signed offsets from osaura_isr_anchor, not absolute pointers.
+# That keeps the table valid after the PE/COFF image is relocated by UEFI.
+.align 4
+.global osaura_isr_offsets
+osaura_isr_offsets:
+    .long osaura_isr_0 - osaura_isr_anchor
+    .long osaura_isr_1 - osaura_isr_anchor
+    .long osaura_isr_2 - osaura_isr_anchor
+    .long osaura_isr_3 - osaura_isr_anchor
+    .long osaura_isr_4 - osaura_isr_anchor
+    .long osaura_isr_5 - osaura_isr_anchor
+    .long osaura_isr_6 - osaura_isr_anchor
+    .long osaura_isr_7 - osaura_isr_anchor
+    .long osaura_isr_8 - osaura_isr_anchor
+    .long osaura_isr_9 - osaura_isr_anchor
+    .long osaura_isr_10 - osaura_isr_anchor
+    .long osaura_isr_11 - osaura_isr_anchor
+    .long osaura_isr_12 - osaura_isr_anchor
+    .long osaura_isr_13 - osaura_isr_anchor
+    .long osaura_isr_14 - osaura_isr_anchor
+    .long osaura_isr_15 - osaura_isr_anchor
+    .long osaura_isr_16 - osaura_isr_anchor
+    .long osaura_isr_17 - osaura_isr_anchor
+    .long osaura_isr_18 - osaura_isr_anchor
+    .long osaura_isr_19 - osaura_isr_anchor
+    .long osaura_isr_20 - osaura_isr_anchor
+    .long osaura_isr_21 - osaura_isr_anchor
+    .long osaura_isr_22 - osaura_isr_anchor
+    .long osaura_isr_23 - osaura_isr_anchor
+    .long osaura_isr_24 - osaura_isr_anchor
+    .long osaura_isr_25 - osaura_isr_anchor
+    .long osaura_isr_26 - osaura_isr_anchor
+    .long osaura_isr_27 - osaura_isr_anchor
+    .long osaura_isr_28 - osaura_isr_anchor
+    .long osaura_isr_29 - osaura_isr_anchor
+    .long osaura_isr_30 - osaura_isr_anchor
+    .long osaura_isr_31 - osaura_isr_anchor
+    .long osaura_isr_32 - osaura_isr_anchor
+    .long osaura_isr_33 - osaura_isr_anchor
+    .long osaura_isr_34 - osaura_isr_anchor
+    .long osaura_isr_35 - osaura_isr_anchor
+    .long osaura_isr_36 - osaura_isr_anchor
+    .long osaura_isr_37 - osaura_isr_anchor
+    .long osaura_isr_38 - osaura_isr_anchor
+    .long osaura_isr_39 - osaura_isr_anchor
+    .long osaura_isr_40 - osaura_isr_anchor
+    .long osaura_isr_41 - osaura_isr_anchor
+    .long osaura_isr_42 - osaura_isr_anchor
+    .long osaura_isr_43 - osaura_isr_anchor
+    .long osaura_isr_44 - osaura_isr_anchor
+    .long osaura_isr_45 - osaura_isr_anchor
+    .long osaura_isr_46 - osaura_isr_anchor
+    .long osaura_isr_47 - osaura_isr_anchor
 
 .section .note.GNU-stack,"",@progbits
