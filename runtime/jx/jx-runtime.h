@@ -24,6 +24,13 @@ uint64_t osaura_jx_runtime_bag_checkpoints(void);
 uint64_t osaura_jx_runtime_channel_messages(void);
 uint64_t osaura_jx_runtime_channel_deliveries(void);
 uint64_t osaura_jx_runtime_channel_switches(void);
+uint64_t osaura_jx_runtime_prepared_calls(void);
+uint64_t osaura_jx_runtime_hot_dispatches(void);
+uint64_t osaura_jx_runtime_reaction_runs(void);
+uint64_t osaura_jx_runtime_reaction_value(void);
+uint64_t osaura_jx_runtime_generation_swaps(void);
+uint64_t osaura_jx_runtime_active_generation(void);
+uint64_t osaura_jx_runtime_previous_generation(void);
 uint64_t osaura_jx_runtime_errors(void);
 
 #endif
