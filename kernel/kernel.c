@@ -1,4 +1,5 @@
 #include "boot-info.h"
+#include "mm.h"
 
 #define GLYPH_W 5u
 #define GLYPH_H 7u
@@ -384,6 +385,12 @@ static uint64_t pages_below_minimum(const efi_memory_descriptor_view *desc) {
     return pages > desc->number_of_pages ? desc->number_of_pages : pages;
 }
 
+static uint64_t descriptor_mapped_pages(const efi_memory_descriptor_view *desc) {
+    if (!desc || desc->physical_start >= OSAURA_VM_DIRECT_LIMIT) return 0;
+    uint64_t mapped = (OSAURA_VM_DIRECT_LIMIT - desc->physical_start) / PAGE_SIZE;
+    return mapped < desc->number_of_pages ? mapped : desc->number_of_pages;
+}
+
 static void page_allocator_init(void) {
     g_free_pages = 0;
     g_allocated_pages = 0;
@@ -395,9 +402,9 @@ static void page_allocator_init(void) {
     for (uint64_t i = 0; i < count; ++i) {
         const efi_memory_descriptor_view *desc = memory_descriptor(i);
         if (!desc || desc->type != EFI_CONVENTIONAL_MEMORY) continue;
+        uint64_t usable = descriptor_mapped_pages(desc);
         uint64_t skip = pages_below_minimum(desc);
-        if (desc->number_of_pages > skip)
-            g_free_pages += desc->number_of_pages - skip;
+        if (usable > skip) g_free_pages += usable - skip;
     }
 }
 
@@ -413,9 +420,10 @@ static void *page_alloc(void) {
             continue;
         }
 
+        uint64_t usable = descriptor_mapped_pages(desc);
         uint64_t skip = pages_below_minimum(desc);
         if (g_alloc_page_index < skip) g_alloc_page_index = skip;
-        if (g_alloc_page_index < desc->number_of_pages) {
+        if (g_alloc_page_index < usable) {
             uint64_t address = desc->physical_start + g_alloc_page_index * PAGE_SIZE;
             ++g_alloc_page_index;
             if (g_free_pages) --g_free_pages;
@@ -431,7 +439,9 @@ static void *page_alloc(void) {
 
 static int page_allocator_self_test(void) {
     uintptr_t frame = (uintptr_t)page_alloc();
-    return frame >= MIN_ALLOC_PHYS && (frame & (PAGE_SIZE - 1u)) == 0u;
+    return frame >= MIN_ALLOC_PHYS &&
+           frame < OSAURA_VM_DIRECT_LIMIT &&
+           (frame & (PAGE_SIZE - 1u)) == 0u;
 }
 
 static void interrupts_init(void) {
@@ -459,10 +469,10 @@ static void print_prompt(void) { write_text("OSAURA> "); }
 static void run_command(const char *line) {
     if (!line[0]) return;
     if (text_equal(line, "HELP")) {
-        write_text("HELP ABOUT MEM TICKS ALLOC CLEAR HALT\n");
+        write_text("HELP ABOUT MEM VM TICKS ALLOC CLEAR HALT\n");
     } else if (text_equal(line, "ABOUT")) {
         write_text("OSAURA NATIVE X86-64 KERNEL\n");
-        write_text("INTERRUPT CORE AND PAGE ALLOCATOR ACTIVE\n");
+        write_text("INTERRUPTS MEMORY AND TERMINAL OWNED\n");
     } else if (text_equal(line, "MEM")) {
         write_text("MEMORY MAP BYTES: ");
         write_u64(g_boot.memory_map_size);
@@ -474,13 +484,19 @@ static void run_command(const char *line) {
         write_text("\nALLOCATED PAGES: ");
         write_u64(g_allocated_pages);
         write_text("\n");
+    } else if (text_equal(line, "VM")) {
+        write_text("OWNED CR3: ");
+        write_u64(osaura_vm_cr3());
+        write_text("\nDIRECT MAP GIB: ");
+        write_u64(osaura_vm_direct_limit() >> 30);
+        write_text("\nPAGE SIZE MIB: 2\n");
     } else if (text_equal(line, "TICKS")) {
         write_text("PIT TICKS: ");
         write_u64(osaura_ticks);
         write_text("\n");
     } else if (text_equal(line, "ALLOC")) {
         void *page = page_alloc();
-        write_text(page ? "PAGE FRAME ALLOCATED\n" : "OUT OF PAGE FRAMES\n");
+        write_text(page ? "PHYSICAL PAGE FRAME ALLOCATED\n" : "OUT OF PAGE FRAMES\n");
     } else if (text_equal(line, "CLEAR")) {
         clear_screen();
         serial_text("\nSCREEN CLEARED\n");
@@ -536,6 +552,14 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     page_allocator_init();
     serial_text("BOOT: FRAME MAP INDEXED\n");
     int allocator_ok = page_allocator_self_test();
+
+    serial_text("BOOT: VM BUILD\n");
+    if (!osaura_vm_init(&g_boot)) {
+        serial_text("BOOT: VM FAILED\n");
+        osaura_arch_disable_interrupts();
+        for (;;) __asm__ volatile("hlt");
+    }
+    serial_text("BOOT: CR3 OWNED\n");
     clear_screen();
 
     interrupts_init();
@@ -543,11 +567,13 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     wait_for_timer_irq();
     serial_text("BOOT: IRQ0 RECEIVED\n");
 
-    write_text("OSAURA KERNEL 0.3-DEV\n");
+    write_text("OSAURA KERNEL 0.4-DEV\n");
     write_text("X86-64 NATIVE MODE\n");
     write_text("UEFI BOOT SERVICES: EXITED\n");
     write_text("FRAMEBUFFER: OWNED\n");
     write_text("MEMORY MAP: CAPTURED\n");
+    write_text("PAGE TABLES: OWNED\n");
+    write_text("DIRECT MAP: 64 GIB\n");
     write_text("GDT: ACTIVE\n");
     write_text("IDT: ACTIVE\n");
     write_text("PIC: REMAPPED 32-47\n");
