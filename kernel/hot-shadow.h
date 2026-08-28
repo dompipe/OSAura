@@ -22,11 +22,11 @@
 #define OSAURA_HOT_BANK_WIFI     7u
 #define OSAURA_HOT_BANK_CLOCK    8u
 #define OSAURA_HOT_BANK_MEMORY   9u
-#define OSAURA_HOT_BANK_TASK     10u /* 0xD0..0xD7 */
-#define OSAURA_HOT_BANK_VFS      11u /* 0xD8..0xDF, reserved until real VFS exists */
-#define OSAURA_HOT_BANK_BOOK     12u /* 0xE0..0xE7 */
-#define OSAURA_HOT_BANK_SECURITY 13u /* 0xE8..0xEF, reserved until capability engine exists */
-/* Banks 14..15 (0xF0..0xFF) remain unassigned for measured future paths. */
+#define OSAURA_HOT_BANK_TASK     10u
+#define OSAURA_HOT_BANK_VFS      11u
+#define OSAURA_HOT_BANK_BOOK     12u
+#define OSAURA_HOT_BANK_SECURITY 13u
+/* 14..15 are deliberately unassigned until profiling earns them. */
 
 typedef int (*osaura_shadow_fn)(void *context, void *request);
 
@@ -37,6 +37,7 @@ typedef struct {
 } osaura_shadow_slot;
 
 typedef struct {
+    /* One cacheable machine-wide map: opcode & 0x7f is the complete index. */
     osaura_shadow_slot slot[OSAURA_HOT_ENTRY_COUNT];
 } osaura_shadow_table;
 
