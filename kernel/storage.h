@@ -25,6 +25,7 @@ typedef enum {
 } osaura_storage_shadow;
 
 typedef struct {
+    uint32_t subject;
     uint32_t device_id;
     uint64_t lba;
     uint64_t offset;
@@ -64,6 +65,14 @@ const osaura_shadow_table *osaura_storage_shadows(void);
 int osaura_block_register(const osaura_block_driver *driver, uint32_t *device_id);
 uint32_t osaura_block_device_count(void);
 int osaura_block_get_info(uint32_t device_id, osaura_block_info *info);
+
+int osaura_block_read_as(uint32_t subject, uint32_t device_id, uint64_t lba, uint32_t blocks, void *buffer);
+int osaura_block_write_as(uint32_t subject, uint32_t device_id, uint64_t lba, uint32_t blocks, const void *buffer);
+int osaura_block_read_at_as(uint32_t subject, uint32_t device_id, uint64_t offset, uint32_t bytes, void *buffer);
+int osaura_block_write_at_as(uint32_t subject, uint32_t device_id, uint64_t offset, uint32_t bytes, const void *buffer);
+int osaura_block_flush_as(uint32_t subject, uint32_t device_id);
+
+/* Kernel-subject compatibility wrappers. */
 int osaura_block_read(uint32_t device_id, uint64_t lba, uint32_t blocks, void *buffer);
 int osaura_block_write(uint32_t device_id, uint64_t lba, uint32_t blocks, const void *buffer);
 int osaura_block_read_at(uint32_t device_id, uint64_t offset, uint32_t bytes, void *buffer);
