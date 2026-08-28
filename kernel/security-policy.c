@@ -69,6 +69,7 @@ int osaura_security_policy_self_test(void) {
         OSAURA_CAP_STORAGE_WRITE |
         OSAURA_CAP_TASK_CONTROL |
         OSAURA_CAP_VFS_WRITE |
+        OSAURA_CAP_WIFI_CREDENTIAL |
         OSAURA_CAP_ADMIN;
 
     if (!osaura_security_check(OSAURA_SECURITY_KERNEL_SUBJECT, OSAURA_CAP_ALL)) return policy_fail(1u);
@@ -95,6 +96,11 @@ int osaura_security_policy_self_test(void) {
     if (osaura_wifi_hot_connect_as(untrusted, 0u, 0, 0u) != -2) return policy_fail(12u);
     if (osaura_e1000_transmit_as(untrusted, 0, 0u) != -2) return policy_fail(13u);
     if (osaura_jx_runtime_queue_book_as(untrusted, (const void *)(uintptr_t)1u, 1u) != -2) return policy_fail(14u);
+
+    /* General Wi-Fi use does not grant access to stored secret material. */
+    osaura_wifi_credential credential = {0};
+    if (osaura_wifi_hot_credentials_find_as(jx, "self-test", &credential) != -2) return policy_fail(15u);
+    if (osaura_wifi_hot_credentials_save_as(jx, &credential) != -2) return policy_fail(16u);
 
     policy_serial_text("SECURITY POLICY: PASS\n");
     return 1;
