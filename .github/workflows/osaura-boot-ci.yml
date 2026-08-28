@@ -137,10 +137,6 @@ jobs:
             exit 1
           fi
 
-          # The runtime announces only after the compiler-authored Bag schema,
-          # all compact prepared-call tiers, O(1) hot routes, reactions, the
-          # generation 1->2 quiescent cutover, channels and both applied bus
-          # entrypoints have executed under real PIT preemption.
           jx_seen=0
           for _ in $(seq 1 80); do
             if grep -Fq 'JX GENERATION 1->2: ACTIVE' build/qemu.log && \
@@ -232,7 +228,10 @@ jobs:
           grep -Fq 'PAGE TABLES: OWNED' build/qemu.log
           grep -Fq 'SCHEDULER: READY' build/qemu.log
           grep -Fq 'PIT IRQ0: ACTIVE' build/qemu.log
-          grep -Fq 'PS2 IRQ1: ACTIVE' build/qemu.log
+          grep -Fq 'PS2 IRQ1: HOT 0xA3' build/qemu.log
+          grep -Fq 'INPUT HOT BANK: 0xA0-0xA7' build/qemu.log
+          grep -Fq 'TERMINAL HOT BANK: 0xA8-0xAF' build/qemu.log
+          grep -Fq 'ALT-TAB TERMINAL SWITCH: HOT 0xAB' build/qemu.log
           grep -Fq 'JX 64B: VERIFIED' build/qemu.log
           grep -Fq 'JX 64B CODE/APPLIED-BUS: LOADED' build/qemu.log
           grep -Fq 'JX BAG SCHEMA: LINKED' build/qemu.log
