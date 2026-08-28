@@ -1,24 +1,17 @@
 #include "jx-runtime.h"
+#include "security.h"
 
 #include <stdint.h>
 
 #define JX64_MAX_BOOK_BYTES (64ull << 20)
 
-/*
- * Transport-only live update state.
- *
- * The scheduler may place a second Book here before the JX task starts, but
- * this module intentionally does not trust, parse, or activate it. The next
- * runtime cutover commit will consume these accessors from inside the JX task,
- * verify the candidate with the same .64B admission law, prelink its numeric
- * roots, prove continuity with the active generation, and only then swap.
- */
 static const void *g_candidate_book;
 static uint64_t g_candidate_book_size;
 static volatile uint8_t g_candidate_queued;
 static volatile uint64_t g_live_book_activations;
 
-int osaura_jx_runtime_queue_book(const void *bytes, uint64_t size) {
+int osaura_jx_runtime_queue_book_as(uint32_t subject, const void *bytes, uint64_t size) {
+    if (subject != 0u && !osaura_security_check(subject, OSAURA_CAP_BOOK_LOAD)) return -2;
     if (!bytes || !size || size > JX64_MAX_BOOK_BYTES ||
         g_candidate_queued || osaura_jx_runtime_active())
         return -1;
@@ -27,6 +20,10 @@ int osaura_jx_runtime_queue_book(const void *bytes, uint64_t size) {
     g_candidate_book_size = size;
     g_candidate_queued = 1u;
     return 0;
+}
+
+int osaura_jx_runtime_queue_book(const void *bytes, uint64_t size) {
+    return osaura_jx_runtime_queue_book_as(0u, bytes, size);
 }
 
 int osaura_jx_runtime_candidate_queued(void) {
