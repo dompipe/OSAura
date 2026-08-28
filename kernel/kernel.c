@@ -55,7 +55,7 @@ static idt_gate g_idt[IDT_ENTRIES];
 static uint32_t g_col;
 static uint32_t g_row;
 static uint8_t g_serial_ready;
-static volatile uint64_t g_ticks;
+volatile uint64_t osaura_ticks;
 static volatile char g_key_queue[KEY_QUEUE_SIZE];
 static volatile uint8_t g_key_head;
 static volatile uint8_t g_key_tail;
@@ -358,7 +358,7 @@ void osaura_interrupt_dispatch(uint64_t vector, uint64_t error_code) {
 
     if (vector >= IRQ_BASE && vector < IRQ_BASE + 16u) {
         uint8_t irq = (uint8_t)(vector - IRQ_BASE);
-        if (irq == IRQ_TIMER) ++g_ticks;
+        if (irq == IRQ_TIMER) ++osaura_ticks;
         else if (irq == IRQ_KEYBOARD) keyboard_irq();
         pic_eoi(irq);
     }
@@ -444,8 +444,8 @@ static void interrupts_init(void) {
 }
 
 static void wait_for_timer_irq(void) {
-    uint64_t start = g_ticks;
-    while (g_ticks - start < 2u)
+    uint64_t start = osaura_ticks;
+    while (osaura_ticks - start < 2u)
         __asm__ volatile("hlt");
 }
 
@@ -471,7 +471,7 @@ static void run_command(const char *line) {
         write_text("\n");
     } else if (text_equal(line, "TICKS")) {
         write_text("PIT TICKS: ");
-        write_u64(g_ticks);
+        write_u64(osaura_ticks);
         write_text("\n");
     } else if (text_equal(line, "ALLOC")) {
         void *page = page_alloc();
