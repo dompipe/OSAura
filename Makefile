@@ -5,6 +5,7 @@ KERNEL_OBJ := $(BUILD)/kernel.o
 MM_OBJ := $(BUILD)/mm.o
 SCHED_OBJ := $(BUILD)/scheduler.o
 USB_OBJ := $(BUILD)/usb.o
+E1000_OBJ := $(BUILD)/e1000.o
 NET_OBJ := $(BUILD)/net.o
 JX_RUNTIME_OBJ := $(BUILD)/jx-runtime.o
 JX_LIVE_OBJ := $(BUILD)/jx-live.o
@@ -57,7 +58,10 @@ $(SCHED_OBJ): kernel/scheduler.c kernel/scheduler.h runtime/jx/jx-runtime.h | $(
 $(USB_OBJ): kernel/usb.c kernel/usb.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -Wno-unused-function -c $< -o $@
 
-$(NET_OBJ): kernel/net.c kernel/net.h | $(BUILD)
+$(E1000_OBJ): kernel/e1000.c kernel/e1000.h | $(BUILD)
+	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+
+$(NET_OBJ): kernel/net.c kernel/net.h kernel/e1000.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 # Keep the already-gated verifier/prelinker source intact. The live tail is
@@ -76,8 +80,8 @@ $(JX_LIVE_OBJ): runtime/jx/jx-live.c runtime/jx/jx-runtime.h | $(BUILD)
 $(ARCH_OBJ): kernel/x86_64.S | $(BUILD)
 	$(CC) $(COMMON_FLAGS) -c $< -o $@
 
-$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(NET_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
-	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(NET_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
+$(SO): $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ)
+	$(LD) $(LDFLAGS) $(EFI_CRT) $(LOADER_OBJ) $(KERNEL_OBJ) $(MM_OBJ) $(SCHED_OBJ) $(USB_OBJ) $(E1000_OBJ) $(NET_OBJ) $(JX_RUNTIME_OBJ) $(JX_LIVE_OBJ) $(ARCH_OBJ) -o $@ -lefi -lgnuefi
 
 $(EFI): $(SO)
 	$(OBJCOPY) \
