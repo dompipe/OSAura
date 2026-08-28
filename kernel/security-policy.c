@@ -73,7 +73,7 @@ int osaura_security_policy_self_test(void) {
 
     if (!osaura_security_check(OSAURA_SECURITY_KERNEL_SUBJECT, OSAURA_CAP_ALL)) return policy_fail(1u);
     if (!osaura_security_check(jx, jx_expected)) return policy_fail(2u);
-    if (osaura_security_check(jx, jx_forbidden)) return policy_fail(3u);
+    if ((osaura_security_snapshot(jx) & jx_forbidden) != 0u) return policy_fail(3u);
 
     /* A non-admin subject may not promote itself. */
     if (osaura_security_grant_as(jx, jx, OSAURA_CAP_TASK_CONTROL) == 0) return policy_fail(4u);
