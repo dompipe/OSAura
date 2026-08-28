@@ -52,8 +52,15 @@ $(MM_OBJ): kernel/mm.c kernel/mm.h kernel/boot-info.h | $(BUILD)
 $(SCHED_OBJ): kernel/scheduler.c kernel/scheduler.h runtime/jx/jx-runtime.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(JX_RUNTIME_OBJ): runtime/jx/jx-runtime.c runtime/jx/jx-runtime.h | $(BUILD)
-	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+# Keep the already-gated verifier/prelinker source intact. The live tail is
+# concatenated into the same translation unit so it can reuse private verifier,
+# Bag, channel, and root state without making those internals public ABI.
+# Rename the old task entry while compiling the base source; the tail undefines
+# the macro and supplies the scheduler-visible live task entry.
+$(JX_RUNTIME_OBJ): runtime/jx/jx-runtime.c runtime/jx/jx-live-tail.c runtime/jx/jx-runtime.h | $(BUILD)
+	cat runtime/jx/jx-runtime.c runtime/jx/jx-live-tail.c | \
+		$(CC) $(KERNEL_CFLAGS) -Dosaura_jx_runtime_task=osaura_jx_runtime_task_legacy \
+		-x c -c - -o $@
 
 $(JX_LIVE_OBJ): runtime/jx/jx-live.c runtime/jx/jx-runtime.h | $(BUILD)
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
