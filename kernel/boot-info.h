@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define OSAURA_BOOT_INFO_VERSION 2u
+#define OSAURA_BOOT_INFO_VERSION 3u
 
 typedef enum {
     OSAURA_PIXEL_RGBX8 = 0,
@@ -27,9 +27,12 @@ typedef struct {
     uint64_t memory_descriptor_size;
     uint32_t memory_descriptor_version;
     uint32_t reserved_map;
-    /* EfiLoaderData holding the compiled OSAURA/runtime.64B Book. */
+    /* EfiLoaderData holding OSAURA/runtime.64B. */
     uint64_t jx_book;
     uint64_t jx_book_size;
+    /* EfiLoaderData holding OSAURA/runtime-next.64B. */
+    uint64_t jx_next_book;
+    uint64_t jx_next_book_size;
 } osaura_boot_info;
 
 #endif
