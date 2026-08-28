@@ -5,6 +5,10 @@
 
 extern void osaura_kernel_main(const osaura_boot_info *boot);
 
+/* Kernel scheduler admission reads these after ExitBootServices. */
+uint64_t osaura_jx_boot_book;
+uint64_t osaura_jx_boot_book_size;
+
 static EFI_GUID g_gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 
 static EFI_STATUS locate_framebuffer(EFI_SYSTEM_TABLE *st, osaura_boot_info *boot) {
@@ -101,6 +105,8 @@ static EFI_STATUS load_jx_book(EFI_HANDLE image_handle,
 
     boot->jx_book = (uint64_t)(uintptr_t)book;
     boot->jx_book_size = (uint64_t)bytes;
+    osaura_jx_boot_book = boot->jx_book;
+    osaura_jx_boot_book_size = boot->jx_book_size;
     return EFI_SUCCESS;
 }
 
