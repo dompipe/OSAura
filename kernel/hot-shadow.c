@@ -1,6 +1,8 @@
 #include "hot-shadow.h"
 #include "usb-hot.h"
 #include "wifi-hot.h"
+#include "clock-hot.h"
+#include "memory-hot.h"
 
 #include <stdint.h>
 
@@ -16,6 +18,8 @@ void osaura_hot_init(void) {
     g_hot_initialized = 1u;
     (void)osaura_usb_hot_bind();
     (void)osaura_wifi_hot_bind();
+    (void)osaura_clock_hot_bind();
+    (void)osaura_memory_hot_bind();
 }
 
 static void ensure_hot_init(void) {
