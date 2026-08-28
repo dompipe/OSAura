@@ -6,6 +6,12 @@
 /* Mirrors dompipe/jx AppliedBytecode::VERSION = jx.applied-bytecode/1. */
 #define OSAURA_JX_APPLIED_ABI 1u
 #define OSAURA_JX_RUNTIME_PAGE_BYTES 6u
+#define OSAURA_JX_RUNTIME_TICK_OFFSET 0u
+#define OSAURA_JX_RUNTIME_COLLECT_OFFSET 3u
+
+/* Load and verify a memory-resident deterministic JX .64B compiled Book. */
+int osaura_jx_runtime_load_book(const void *bytes, uint64_t size);
+int osaura_jx_runtime_book_loaded(void);
 
 __attribute__((noreturn)) void osaura_jx_runtime_task(void);
 
@@ -13,6 +19,11 @@ int osaura_jx_runtime_active(void);
 uint64_t osaura_jx_runtime_heartbeat(void);
 uint64_t osaura_jx_runtime_bus_ticks(void);
 uint64_t osaura_jx_runtime_bus_collects(void);
+uint64_t osaura_jx_runtime_bag_revision(void);
+uint64_t osaura_jx_runtime_bag_checkpoints(void);
+uint64_t osaura_jx_runtime_channel_messages(void);
+uint64_t osaura_jx_runtime_channel_deliveries(void);
+uint64_t osaura_jx_runtime_channel_switches(void);
 uint64_t osaura_jx_runtime_errors(void);
 
 #endif
