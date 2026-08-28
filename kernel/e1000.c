@@ -1,4 +1,5 @@
 #include "e1000.h"
+#include "hot-shadow.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -50,6 +51,9 @@
 #define E1000_TX_CMD_RS 0x08u
 #define E1000_TX_STATUS_DD 0x01u
 
+#define OSAURA_NET_HOT_RX_FRAME 0u
+#define OSAURA_NET_HOT_TX_FRAME 1u
+
 typedef struct __attribute__((packed, aligned(16))) {
     uint64_t address;
     uint16_t length;
@@ -68,6 +72,14 @@ typedef struct __attribute__((packed, aligned(16))) {
     uint8_t css;
     uint16_t special;
 } e1000_tx_desc;
+
+typedef struct {
+    void *frame;
+    const void *const_frame;
+    uint16_t capacity;
+    uint16_t bytes;
+    uint16_t *bytes_out;
+} e1000_hot_request;
 
 static volatile uint8_t *g_mmio;
 static uint8_t g_ready;
@@ -204,40 +216,7 @@ static void init_tx(void) {
     reg_write(E1000_REG_TIPG, 10u | (8u << 10) | (6u << 20));
 }
 
-int osaura_e1000_init(uint8_t bus, uint8_t device, uint8_t function) {
-    g_ready = 0u;
-    uint32_t id = pci_read32(bus, device, function, 0u);
-    if ((id & 0xffffu) != 0x8086u) return 0;
-
-    uint64_t bar = pci_bar0(bus, device, function);
-    if (!bar) return 0;
-    g_mmio = (volatile uint8_t *)(uintptr_t)bar;
-
-    uint32_t command = pci_read32(bus, device, function, 0x04u);
-    command = (command & 0xffff0000u) | ((command & 0xffffu) | 0x0006u);
-    pci_write32(bus, device, function, 0x04u, command);
-
-    reg_write(E1000_REG_IMC, 0xffffffffu);
-    (void)reg_read(E1000_REG_ICR);
-    reg_write(E1000_REG_CTRL, reg_read(E1000_REG_CTRL) | E1000_CTRL_SLU);
-    if (!read_mac()) return 0;
-
-    init_rx();
-    init_tx();
-    (void)reg_read(E1000_REG_STATUS);
-    g_ready = 1u;
-    return 1;
-}
-
-int osaura_e1000_ready(void) {
-    return g_ready != 0u;
-}
-
-const osaura_mac_address *osaura_e1000_mac(void) {
-    return g_ready ? &g_mac : NULL;
-}
-
-int osaura_e1000_transmit(const void *frame, uint16_t bytes) {
+static int e1000_transmit_raw(const void *frame, uint16_t bytes) {
     if (!g_ready || !frame || bytes < 14u || bytes > E1000_BUFFER_BYTES) return 0;
     uint32_t index = g_tx_next;
     e1000_tx_desc *desc = &g_tx[index];
@@ -258,7 +237,7 @@ int osaura_e1000_transmit(const void *frame, uint16_t bytes) {
     return 1;
 }
 
-int osaura_e1000_receive(void *frame, uint16_t capacity, uint16_t *bytes_out) {
+static int e1000_receive_raw(void *frame, uint16_t capacity, uint16_t *bytes_out) {
     if (bytes_out) *bytes_out = 0u;
     if (!g_ready || !frame || !capacity) return 0;
 
@@ -281,4 +260,76 @@ int osaura_e1000_receive(void *frame, uint16_t capacity, uint16_t *bytes_out) {
     g_rx_next = (g_rx_next + 1u) % E1000_RX_COUNT;
     reg_write(E1000_REG_RDT, consumed);
     return complete;
+}
+
+static int hot_rx_frame(void *context, void *opaque) {
+    (void)context;
+    e1000_hot_request *request = (e1000_hot_request *)opaque;
+    if (!request) return 0;
+    return e1000_receive_raw(request->frame, request->capacity, request->bytes_out);
+}
+
+static int hot_tx_frame(void *context, void *opaque) {
+    (void)context;
+    e1000_hot_request *request = (e1000_hot_request *)opaque;
+    if (!request) return 0;
+    return e1000_transmit_raw(request->const_frame, request->bytes);
+}
+
+int osaura_e1000_init(uint8_t bus, uint8_t device, uint8_t function) {
+    g_ready = 0u;
+    uint32_t id = pci_read32(bus, device, function, 0u);
+    if ((id & 0xffffu) != 0x8086u) return 0;
+
+    uint64_t bar = pci_bar0(bus, device, function);
+    if (!bar) return 0;
+    g_mmio = (volatile uint8_t *)(uintptr_t)bar;
+
+    uint32_t command = pci_read32(bus, device, function, 0x04u);
+    command = (command & 0xffff0000u) | ((command & 0xffffu) | 0x0006u);
+    pci_write32(bus, device, function, 0x04u, command);
+
+    reg_write(E1000_REG_IMC, 0xffffffffu);
+    (void)reg_read(E1000_REG_ICR);
+    reg_write(E1000_REG_CTRL, reg_read(E1000_REG_CTRL) | E1000_CTRL_SLU);
+    if (!read_mac()) return 0;
+
+    init_rx();
+    init_tx();
+    (void)reg_read(E1000_REG_STATUS);
+    g_ready = 1u;
+
+    if (osaura_hot_bind(OSAURA_HOT_BANK_NETWORK, OSAURA_NET_HOT_RX_FRAME, hot_rx_frame, 0) != 0 ||
+        osaura_hot_bind(OSAURA_HOT_BANK_NETWORK, OSAURA_NET_HOT_TX_FRAME, hot_tx_frame, 0) != 0) {
+        g_ready = 0u;
+        return 0;
+    }
+    return 1;
+}
+
+int osaura_e1000_ready(void) {
+    return g_ready != 0u;
+}
+
+const osaura_mac_address *osaura_e1000_mac(void) {
+    return g_ready ? &g_mac : NULL;
+}
+
+int osaura_e1000_transmit(const void *frame, uint16_t bytes) {
+    e1000_hot_request request = {0};
+    request.const_frame = frame;
+    request.bytes = bytes;
+    return osaura_hot_dispatch_opcode(
+        osaura_hot_opcode(OSAURA_HOT_BANK_NETWORK, OSAURA_NET_HOT_TX_FRAME),
+        &request);
+}
+
+int osaura_e1000_receive(void *frame, uint16_t capacity, uint16_t *bytes_out) {
+    e1000_hot_request request = {0};
+    request.frame = frame;
+    request.capacity = capacity;
+    request.bytes_out = bytes_out;
+    return osaura_hot_dispatch_opcode(
+        osaura_hot_opcode(OSAURA_HOT_BANK_NETWORK, OSAURA_NET_HOT_RX_FRAME),
+        &request);
 }
