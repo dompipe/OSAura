@@ -97,7 +97,19 @@ ISR_ERR   29
 ISR_ERR   30
 ISR_NOERR 31
 
-ISR_NOERR 32
+# IRQ0 is deliberately kept as a minimal assembly path. It proves the
+# descriptor/PIC/iret path independently of the C interrupt ABI and gives the
+# scheduler clock a very small hot path.
+.global osaura_isr_32
+.type osaura_isr_32,@function
+osaura_isr_32:
+    pushq %rax
+    incq osaura_ticks(%rip)
+    movb $0x20, %al
+    outb %al, $0x20
+    popq %rax
+    iretq
+
 ISR_NOERR 33
 ISR_NOERR 34
 ISR_NOERR 35
@@ -116,6 +128,7 @@ ISR_NOERR 47
 
 .type osaura_isr_common,@function
 osaura_isr_common:
+    cld
     pushq %rax
     pushq %rbx
     pushq %rcx
