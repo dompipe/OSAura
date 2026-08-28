@@ -52,6 +52,7 @@ uint64_t osaura_scheduler_task_ticks(uint32_t task_id);
 uint64_t osaura_scheduler_task_switches(uint32_t task_id);
 osaura_task_state osaura_scheduler_task_state(uint32_t task_id);
 osaura_task_role osaura_scheduler_task_role(uint32_t task_id);
+uint32_t osaura_scheduler_task_subject(uint32_t task_id);
 int osaura_scheduler_running(void);
 
 /* Subject-aware job-control APIs. Non-kernel callers require TASK_CONTROL. */
