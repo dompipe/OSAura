@@ -40,6 +40,8 @@ jobs:
           test -s build/kernel.o
           test -s build/mm.o
           test -s build/scheduler.o
+          test -s build/usb-hot.o
+          test -s build/wifi-hot.o
           test -s build/jx-runtime.o
           test -s build/x86_64.o
           test -s build/bootx64.so
@@ -47,6 +49,10 @@ jobs:
           nm build/kernel.o | grep -F 'osaura_ticks'
           nm build/mm.o | grep -F 'osaura_vm_init'
           nm build/scheduler.o | grep -F 'osaura_scheduler_on_timer'
+          nm build/usb-hot.o | grep -F 'osaura_usb_hot_bind'
+          nm build/usb-hot.o | grep -F 'osaura_usb_hot_reinit'
+          nm build/wifi-hot.o | grep -F 'osaura_wifi_hot_bind'
+          nm build/wifi-hot.o | grep -F 'osaura_wifi_hot_connect'
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_load_book'
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_task'
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_bus_ticks'
