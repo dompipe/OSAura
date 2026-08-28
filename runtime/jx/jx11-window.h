@@ -5,6 +5,7 @@
 
 #define OSAURA_JX11_WINDOW_MAX 64u
 #define OSAURA_JX11_WINDOW_NONE UINT32_MAX
+#define OSAURA_JX11_LISTENER_NONE UINT32_MAX
 #define OSAURA_JX11_EVENT_QUEUE_MAX 128u
 
 typedef enum {
@@ -26,6 +27,7 @@ typedef struct {
     uint32_t owner_subject;
     uint32_t parent_id;
     uint32_t surface_id;
+    uint32_t listener_pid;
     int32_t x;
     int32_t y;
     uint32_t width;
@@ -62,6 +64,10 @@ int osaura_jx11_window_set_visible_as(uint32_t owner_subject, uint32_t window_id
 int osaura_jx11_window_raise_as(uint32_t owner_subject, uint32_t window_id);
 int osaura_jx11_window_lower_as(uint32_t owner_subject, uint32_t window_id);
 int osaura_jx11_window_focus_as(uint32_t owner_subject, uint32_t window_id);
+int osaura_jx11_window_bind_listener_as(uint32_t owner_subject,
+                                        uint32_t window_id,
+                                        uint32_t listener_pid);
+uint32_t osaura_jx11_window_primary_listener(void);
 uint32_t osaura_jx11_window_focused(void);
 uint32_t osaura_jx11_window_hit_test(int32_t x, int32_t y);
 int osaura_jx11_window_pointer(int32_t x, int32_t y, uint32_t buttons, uint32_t changed_button, int pressed);
