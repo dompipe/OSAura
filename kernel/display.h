@@ -25,6 +25,7 @@ typedef struct {
     uint32_t height;
 } osaura_display_rect;
 
+int osaura_display_init_surface(const osaura_display_surface *surface);
 int osaura_display_init_gop(const osaura_boot_info *boot);
 int osaura_display_ready(void);
 const osaura_display_surface *osaura_display_primary(void);
