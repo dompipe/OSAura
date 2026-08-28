@@ -24,6 +24,8 @@ typedef struct {
 /* Set by the UEFI loader before ExitBootServices. */
 extern uint64_t osaura_jx_boot_book;
 extern uint64_t osaura_jx_boot_book_size;
+extern uint64_t osaura_jx_next_book;
+extern uint64_t osaura_jx_next_book_size;
 
 static osaura_task g_tasks[OSAURA_TASK_MAX];
 static uint64_t g_jx_stack[TASK_STACK_QWORDS] __attribute__((aligned(16)));
@@ -41,25 +43,6 @@ __attribute__((noreturn, noinline)) static void osaura_idle_task(void) {
     for (;;) __asm__ volatile("hlt");
 }
 
-/*
- * IRQ0's assembly restore path consumes this exact long-mode stack image:
- *
- *   r15..rax (15 qwords)
- *   RIP
- *   CS
- *   RFLAGS
- *   RSP
- *   SS
- *
- * Intel 64 IRETQ pops SS:RSP unconditionally in 64-bit mode. Real hardware
- * interrupts already provide the five-word IRET frame; synthetic first-run
- * task frames must do the same or IRETQ will interpret whatever follows
- * RFLAGS as the new task stack pointer and stack selector.
- *
- * The return slot lives at the naturally aligned top of the task stack. The
- * synthetic IRET frame loads RSP with its address, which gives a C entry point
- * the normal System V x86-64 entry alignment and a deterministic return trap.
- */
 static uint64_t *build_initial_frame(uint64_t *stack,
                                      size_t qwords,
                                      void (*entry)(void)) {
@@ -92,19 +75,24 @@ void osaura_scheduler_init(void) {
     g_tasks[0].ready = 1u;
 
     /*
-     * Task one is admitted only after the boot-loaded compiled Book passes the
-     * OSAura .64B verifier. The runtime therefore never executes an unverified
-     * applied page merely because a scheduler slot exists.
+     * Task one is admitted only after the boot Book verifies and a candidate
+     * Book has been queued for the runtime task. The candidate is not trusted
+     * or activated here; verification and root cutover happen inside JX at a
+     * quiescent boundary after scheduling begins.
      */
     int jx_book_ok = osaura_jx_runtime_load_book(
                          (const void *)(uintptr_t)osaura_jx_boot_book,
                          osaura_jx_boot_book_size) == 0;
-    if (jx_book_ok) {
+    int jx_candidate_ok = jx_book_ok &&
+                          osaura_jx_runtime_queue_book(
+                              (const void *)(uintptr_t)osaura_jx_next_book,
+                              osaura_jx_next_book_size) == 0;
+    if (jx_candidate_ok) {
         g_tasks[1].saved_rsp = build_initial_frame(g_jx_stack,
                                                    TASK_STACK_QWORDS,
                                                    osaura_jx_runtime_task);
     }
-    g_tasks[1].ready = jx_book_ok && g_tasks[1].saved_rsp != 0;
+    g_tasks[1].ready = jx_candidate_ok && g_tasks[1].saved_rsp != 0;
 
     /* Task two is the kernel idle thread used when no service work is needed. */
     g_tasks[2].saved_rsp = build_initial_frame(g_idle_stack,
