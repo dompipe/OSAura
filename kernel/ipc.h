@@ -9,7 +9,7 @@
 #define OSAURA_IPC_PAYLOAD_MAX 64u
 #define OSAURA_IPC_NONE UINT32_MAX
 
-/* 3-bit IPC hot ABI: exactly eight shadows. */
+/* IPC bank shadows: low three bits of the one-byte hot opcode. */
 typedef enum {
     OSAURA_IPC_SEND       = 0u,
     OSAURA_IPC_RECEIVE    = 1u,
@@ -40,6 +40,7 @@ typedef struct {
 
 void osaura_ipc_init(void);
 int osaura_ipc_dispatch(uint8_t selector, osaura_ipc_request *request);
+int osaura_ipc_dispatch_opcode(uint8_t opcode, osaura_ipc_request *request);
 const osaura_shadow_table *osaura_ipc_shadows(void);
 int osaura_ipc_channel_create(uint32_t owner_task, uint32_t *channel_id);
 int osaura_ipc_channel_close(uint32_t owner_task, uint32_t channel_id);
