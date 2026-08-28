@@ -34,15 +34,19 @@ jobs:
         run: |
           test -s build/loader.o
           test -s build/kernel.o
+          test -s build/mm.o
           test -s build/x86_64.o
           test -s build/bootx64.so
           nm build/kernel.o | grep -F 'osaura_kernel_main'
           nm build/kernel.o | grep -F 'osaura_ticks'
+          nm build/mm.o | grep -F 'osaura_vm_init'
+          nm build/x86_64.o | grep -F 'osaura_arch_write_cr3'
           nm build/x86_64.o | grep -F 'osaura_isr_32'
           nm build/x86_64.o | grep -F 'osaura_isr_33'
           objdump -h build/bootx64.so > build/sections.txt
           grep -F '.text' build/sections.txt
           grep -F '.data' build/sections.txt
+          grep -F '.bss' build/sections.txt
 
       - name: Build USB image
         run: make image
@@ -55,7 +59,7 @@ jobs:
           mdir -i build/osaura.img ::/EFI/BOOT
           mdir -i build/osaura.img ::/OSAURA
 
-      - name: Boot interrupt-driven kernel under OVMF
+      - name: Boot kernel-owned page tables under OVMF
         run: |
           if [ -f /usr/share/OVMF/OVMF_CODE.fd ] && [ -f /usr/share/OVMF/OVMF_VARS.fd ]; then
             OVMF_CODE=/usr/share/OVMF/OVMF_CODE.fd
@@ -72,7 +76,7 @@ jobs:
           rm -f build/qemu-monitor build/qemu-debug.log
 
           set +e
-          timeout 12s qemu-system-x86_64 \
+          timeout 14s qemu-system-x86_64 \
             -machine q35 \
             -m 256M \
             -vga std \
@@ -96,7 +100,7 @@ jobs:
           test -S build/qemu-monitor
 
           prompt_seen=0
-          for _ in $(seq 1 80); do
+          for _ in $(seq 1 100); do
             if grep -Fq 'OSAURA>' build/qemu.log; then prompt_seen=1; break; fi
             sleep 0.1
           done
@@ -104,7 +108,7 @@ jobs:
             echo 'OSAura prompt was not reached; early serial log follows:'
             cat build/qemu.log || true
             echo 'Last QEMU interrupt trace lines:'
-            tail -n 120 build/qemu-debug.log || true
+            tail -n 160 build/qemu-debug.log || true
             printf 'quit\n' | socat - UNIX-CONNECT:build/qemu-monitor || true
             wait "$qemu_pid" || true
             exit 1
@@ -120,7 +124,34 @@ jobs:
 
           help_seen=0
           for _ in $(seq 1 40); do
-            if grep -Fq 'HELP ABOUT MEM TICKS ALLOC CLEAR HALT' build/qemu.log; then help_seen=1; break; fi
+            if grep -Fq 'HELP ABOUT MEM VM TICKS ALLOC CLEAR HALT' build/qemu.log; then help_seen=1; break; fi
+            sleep 0.1
+          done
+
+          {
+            echo 'sendkey v'
+            echo 'sendkey m'
+            echo 'sendkey ret'
+          } | socat - UNIX-CONNECT:build/qemu-monitor
+
+          vm_seen=0
+          for _ in $(seq 1 40); do
+            if grep -Fq 'DIRECT MAP GIB: 64' build/qemu.log; then vm_seen=1; break; fi
+            sleep 0.1
+          done
+
+          {
+            echo 'sendkey a'
+            echo 'sendkey l'
+            echo 'sendkey l'
+            echo 'sendkey o'
+            echo 'sendkey c'
+            echo 'sendkey ret'
+          } | socat - UNIX-CONNECT:build/qemu-monitor
+
+          alloc_seen=0
+          for _ in $(seq 1 40); do
+            if grep -Fq 'PHYSICAL PAGE FRAME ALLOCATED' build/qemu.log; then alloc_seen=1; break; fi
             sleep 0.1
           done
 
@@ -131,20 +162,27 @@ jobs:
           set -e
 
           cat build/qemu.log
-          if [ "$help_seen" -ne 1 ]; then
-            echo 'Keyboard IRQ command path failed; last QEMU interrupt trace lines:'
-            tail -n 120 build/qemu-debug.log || true
+          if [ "$help_seen" -ne 1 ] || [ "$vm_seen" -ne 1 ] || [ "$alloc_seen" -ne 1 ]; then
+            echo 'Kernel-owned VM/IRQ command gate failed; last QEMU interrupt trace lines:'
+            tail -n 160 build/qemu-debug.log || true
           fi
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then exit "$rc"; fi
           test "$help_seen" -eq 1
-          grep -Fq 'OSAURA KERNEL 0.3-DEV' build/qemu.log
+          test "$vm_seen" -eq 1
+          test "$alloc_seen" -eq 1
+          grep -Fq 'OSAURA KERNEL 0.4-DEV' build/qemu.log
           grep -Fq 'UEFI BOOT SERVICES: EXITED' build/qemu.log
+          grep -Fq 'BOOT: CR3 OWNED' build/qemu.log
+          grep -Fq 'PAGE TABLES: OWNED' build/qemu.log
+          grep -Fq 'DIRECT MAP: 64 GIB' build/qemu.log
           grep -Fq 'GDT: ACTIVE' build/qemu.log
           grep -Fq 'IDT: ACTIVE' build/qemu.log
           grep -Fq 'PIT IRQ0: ACTIVE' build/qemu.log
           grep -Fq 'PS2 IRQ1: ACTIVE' build/qemu.log
           grep -Fq 'PAGE ALLOCATOR: ACTIVE' build/qemu.log
-          grep -Fq 'HELP ABOUT MEM TICKS ALLOC CLEAR HALT' build/qemu.log
+          grep -Fq 'HELP ABOUT MEM VM TICKS ALLOC CLEAR HALT' build/qemu.log
+          grep -Fq 'DIRECT MAP GIB: 64' build/qemu.log
+          grep -Fq 'PHYSICAL PAGE FRAME ALLOCATED' build/qemu.log
 
       - name: Upload boot artifacts
         if: always()
