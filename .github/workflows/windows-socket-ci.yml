@@ -24,6 +24,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Initialize MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Compile neutral socket core
         shell: cmd
         run: cl /nologo /W4 /WX /c kernel\socket.c /Iinclude /Ikernel /Fobuild-socket-core.obj
