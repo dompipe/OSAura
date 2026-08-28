@@ -41,6 +41,8 @@ int main(void) {
     uint32_t window = OSAURA_JX11_WINDOW_NONE;
     if (!expect(osaura_jx11_window_create(1u, OSAURA_JX11_WINDOW_NONE, 4, 5, 20u, 12u, &window) == 0,
                 "window create")) return 1;
+    if (!expect(osaura_jx11_window_bind_listener_as(1u, window, 1u) == 0,
+                "bind listener PID")) return 1;
 
     static const struct { uint32_t value; uint32_t selected; } bag_view_v7 = { 42u, 1u };
     if (!expect(osaura_jx11_window_bag_bind_as(1u, window, 37ull, 7ull,
@@ -54,6 +56,8 @@ int main(void) {
 
     if (!expect(osaura_jx11_window_move_as(1u, window, 31, 22) == 0, "move view")) return 1;
     if (!expect(osaura_jx11_window_focus_as(1u, window) == 0, "focus view")) return 1;
+    if (!expect(osaura_jx11_window_primary_listener() == 1u,
+                "focused window is primary listener")) return 1;
     osaura_jx11_window_bag_view after_move = {0};
     if (!expect(osaura_jx11_window_bag_get(window, &after_move) == 1, "read after move")) return 1;
     if (!expect(after_move.bag_id == before.bag_id &&
@@ -76,9 +80,12 @@ int main(void) {
                                                   OSAURA_PROCESSOR_BUS_CHANGE_VALUE,
                                                   1u, 0u) == 1,
                 "publish borrowed Bag to processor bus")) return 1;
+    if (!expect(osaura_processor_bus_priority_pid() == 1u,
+                "window listener installed as bus priority")) return 1;
     osaura_processor_bus_view bus_view = {0};
     if (!expect(osaura_processor_bus_view_for(1u, &bus_view) == 0, "processor bus view")) return 1;
-    if (!expect(bus_view.bag_id == 37ull && bus_view.bag_generation == 8ull &&
+    if (!expect(bus_view.foreground_pid == 1u &&
+                bus_view.bag_id == 37ull && bus_view.bag_generation == 8ull &&
                 bus_view.pointed_data == &bag_view_v8 &&
                 bus_view.change_kind == OSAURA_PROCESSOR_BUS_CHANGE_VALUE,
                 "window publishes current Bag generation without copy")) return 1;
