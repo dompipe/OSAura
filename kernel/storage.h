@@ -69,7 +69,7 @@ int osaura_storage_dispatch(uint8_t selector, osaura_storage_request *request);
 const osaura_shadow_table *osaura_storage_shadows(void);
 int osaura_block_register(const osaura_block_driver *driver, uint32_t *device_id);
 uint32_t osaura_block_device_count(void);
-int osaura_block_info(uint32_t device_id, osaura_block_info *info);
+int osaura_block_get_info(uint32_t device_id, osaura_block_info *info);
 int osaura_block_read(uint32_t device_id, uint64_t lba, uint32_t blocks, void *buffer);
 int osaura_block_write(uint32_t device_id, uint64_t lba, uint32_t blocks, const void *buffer);
 int osaura_block_flush(uint32_t device_id);
