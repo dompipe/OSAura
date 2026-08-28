@@ -13,30 +13,39 @@ static uint32_t convert_xrgb(uint32_t xrgb) {
     return osaura_display_pack_rgb(r, g, b);
 }
 
-int osaura_display_init_gop(const osaura_boot_info *boot) {
+int osaura_display_init_surface(const osaura_display_surface *surface) {
     g_ready = 0u;
-    if (!boot || !boot->framebuffer_base || !boot->framebuffer_size ||
-        !boot->width || !boot->height || !boot->pixels_per_scanline)
+    if (!surface || !surface->framebuffer_base || !surface->framebuffer_size ||
+        !surface->width || !surface->height || !surface->stride_pixels)
         return -1;
-    if (boot->pixels_per_scanline < boot->width) return -2;
-    if (boot->pixel_format != OSAURA_PIXEL_RGBX8 &&
-        boot->pixel_format != OSAURA_PIXEL_BGRX8)
+    if (surface->stride_pixels < surface->width) return -2;
+    if (surface->pixel_format != OSAURA_DISPLAY_PIXEL_RGBX8 &&
+        surface->pixel_format != OSAURA_DISPLAY_PIXEL_BGRX8)
         return -3;
 
-    uint64_t needed = (uint64_t)boot->pixels_per_scanline *
-                      (uint64_t)boot->height * sizeof(uint32_t);
-    if (needed > boot->framebuffer_size) return -4;
+    uint64_t needed = (uint64_t)surface->stride_pixels *
+                      (uint64_t)surface->height * sizeof(uint32_t);
+    if (needed > surface->framebuffer_size) return -4;
 
-    g_primary.width = boot->width;
-    g_primary.height = boot->height;
-    g_primary.stride_pixels = boot->pixels_per_scanline;
-    g_primary.pixel_format = boot->pixel_format == OSAURA_PIXEL_RGBX8
-        ? OSAURA_DISPLAY_PIXEL_RGBX8
-        : OSAURA_DISPLAY_PIXEL_BGRX8;
-    g_primary.framebuffer_base = boot->framebuffer_base;
-    g_primary.framebuffer_size = boot->framebuffer_size;
+    g_primary = *surface;
     g_ready = 1u;
     return 0;
+}
+
+int osaura_display_init_gop(const osaura_boot_info *boot) {
+    if (!boot) return -1;
+    osaura_display_surface surface;
+    surface.width = boot->width;
+    surface.height = boot->height;
+    surface.stride_pixels = boot->pixels_per_scanline;
+    surface.pixel_format = boot->pixel_format == OSAURA_PIXEL_RGBX8
+        ? OSAURA_DISPLAY_PIXEL_RGBX8
+        : boot->pixel_format == OSAURA_PIXEL_BGRX8
+            ? OSAURA_DISPLAY_PIXEL_BGRX8
+            : UINT32_MAX;
+    surface.framebuffer_base = boot->framebuffer_base;
+    surface.framebuffer_size = boot->framebuffer_size;
+    return osaura_display_init_surface(&surface);
 }
 
 int osaura_display_ready(void) { return g_ready ? 1 : 0; }
