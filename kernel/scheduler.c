@@ -25,6 +25,7 @@ typedef struct {
     const char *name;
     osaura_task_state state;
     osaura_task_role role;
+    uint32_t subject;
     uint8_t terminal_id;
     uint8_t background;
 } osaura_task;
@@ -47,7 +48,8 @@ static uint8_t g_initialized;
 static uint8_t g_running;
 
 static int task_control_allowed(uint32_t subject) {
-    return subject == 0u || osaura_security_check(subject, OSAURA_CAP_TASK_CONTROL);
+    return subject == OSAURA_SECURITY_KERNEL_SUBJECT ||
+           osaura_security_check(subject, OSAURA_CAP_TASK_CONTROL);
 }
 
 __attribute__((noreturn)) static void task_returned(void) {
@@ -81,6 +83,7 @@ static void task_clear(osaura_task *task) {
     task->name = "UNUSED";
     task->state = OSAURA_TASK_UNUSED;
     task->role = OSAURA_TASK_ROLE_KERNEL;
+    task->subject = OSAURA_SECURITY_KERNEL_SUBJECT;
     task->terminal_id = 0u;
     task->background = 0u;
 }
@@ -144,28 +147,24 @@ static int hot_attach(void *context, void *opaque) {
     if (!r || !task_control_allowed(r->subject)) return -2;
     return raw_attach(r->task_id, r->terminal_id);
 }
-
 static int hot_background(void *context, void *opaque) {
     (void)context;
     osaura_job_hot_request *r = (osaura_job_hot_request *)opaque;
     if (!r || !task_control_allowed(r->subject)) return -2;
     return raw_background(r->terminal_id, &r->task_id);
 }
-
 static int hot_foreground(void *context, void *opaque) {
     (void)context;
     osaura_job_hot_request *r = (osaura_job_hot_request *)opaque;
     if (!r || !task_control_allowed(r->subject)) return -2;
     return raw_foreground(r->terminal_id, &r->task_id);
 }
-
 static int hot_set_state(void *context, void *opaque) {
     (void)context;
     osaura_job_hot_request *r = (osaura_job_hot_request *)opaque;
     if (!r || !task_control_allowed(r->subject)) return -2;
     return raw_set_state(r->task_id, r->state);
 }
-
 static int hot_get_fg(void *context, void *opaque) {
     (void)context;
     osaura_job_hot_request *r = (osaura_job_hot_request *)opaque;
@@ -173,7 +172,6 @@ static int hot_get_fg(void *context, void *opaque) {
     r->task_id = g_foreground[r->terminal_id];
     return 0;
 }
-
 static int hot_bg_count(void *context, void *opaque) {
     (void)context;
     osaura_job_hot_request *r = (osaura_job_hot_request *)opaque;
@@ -181,7 +179,6 @@ static int hot_bg_count(void *context, void *opaque) {
     r->value = g_background_count;
     return 0;
 }
-
 static int hot_bg_at(void *context, void *opaque) {
     (void)context;
     osaura_job_hot_request *r = (osaura_job_hot_request *)opaque;
@@ -189,7 +186,6 @@ static int hot_bg_at(void *context, void *opaque) {
     r->task_id = g_background_stack[r->stack_index];
     return 0;
 }
-
 static int hot_wake(void *context, void *opaque) {
     (void)context;
     osaura_job_hot_request *r = (osaura_job_hot_request *)opaque;
@@ -219,6 +215,7 @@ void osaura_scheduler_init(void) {
     g_tasks[0].name = "SHELL";
     g_tasks[0].state = OSAURA_TASK_RUNNABLE;
     g_tasks[0].role = OSAURA_TASK_ROLE_KERNEL;
+    g_tasks[0].subject = OSAURA_SECURITY_KERNEL_SUBJECT;
 
     int jx_book_ok = osaura_jx_runtime_load_book(
         (const void *)(uintptr_t)osaura_jx_boot_book, osaura_jx_boot_book_size) == 0;
@@ -227,6 +224,7 @@ void osaura_scheduler_init(void) {
 
     g_tasks[1].name = "JX-RUNTIME";
     g_tasks[1].role = OSAURA_TASK_ROLE_SERVICE;
+    g_tasks[1].subject = OSAURA_SECURITY_JX_SUBJECT;
     if (jx_candidate_ok)
         g_tasks[1].saved_rsp = build_initial_frame(g_jx_stack, TASK_STACK_QWORDS, osaura_jx_runtime_task);
     g_tasks[1].state = (jx_candidate_ok && g_tasks[1].saved_rsp) ?
@@ -234,6 +232,7 @@ void osaura_scheduler_init(void) {
 
     g_tasks[2].name = "IDLE";
     g_tasks[2].role = OSAURA_TASK_ROLE_KERNEL;
+    g_tasks[2].subject = OSAURA_SECURITY_KERNEL_SUBJECT;
     g_tasks[2].saved_rsp = build_initial_frame(g_idle_stack, TASK_STACK_QWORDS, osaura_idle_task);
     g_tasks[2].state = g_tasks[2].saved_rsp ? OSAURA_TASK_RUNNABLE : OSAURA_TASK_UNUSED;
 
@@ -295,6 +294,11 @@ osaura_task_state osaura_scheduler_task_state(uint32_t task_id) {
 osaura_task_role osaura_scheduler_task_role(uint32_t task_id) {
     return task_id < OSAURA_TASK_MAX ? g_tasks[task_id].role : OSAURA_TASK_ROLE_KERNEL;
 }
+uint32_t osaura_scheduler_task_subject(uint32_t task_id) {
+    if (task_id >= OSAURA_TASK_MAX || g_tasks[task_id].state == OSAURA_TASK_UNUSED)
+        return OSAURA_SECURITY_KERNEL_SUBJECT;
+    return g_tasks[task_id].subject;
+}
 
 static int dispatch_job(uint8_t shadow, osaura_job_hot_request *r) {
     return osaura_hot_dispatch_opcode(osaura_hot_opcode(OSAURA_HOT_BANK_JOBS, shadow), r);
@@ -308,7 +312,6 @@ int osaura_scheduler_set_task_state_as(uint32_t subject, uint32_t task_id,
     r.state = state;
     return dispatch_job(OSAURA_JOB_HOT_SET_STATE, &r);
 }
-
 int osaura_scheduler_attach_program_as(uint32_t subject, uint32_t task_id,
                                        uint8_t terminal_id) {
     osaura_job_hot_request r = {0};
@@ -317,7 +320,6 @@ int osaura_scheduler_attach_program_as(uint32_t subject, uint32_t task_id,
     r.terminal_id = terminal_id;
     return dispatch_job(OSAURA_JOB_HOT_ATTACH, &r);
 }
-
 int osaura_scheduler_background_as(uint32_t subject, uint8_t terminal_id, uint32_t *task_id) {
     osaura_job_hot_request r = {0};
     r.subject = subject;
@@ -326,7 +328,6 @@ int osaura_scheduler_background_as(uint32_t subject, uint8_t terminal_id, uint32
     if (rc == 0 && task_id) *task_id = r.task_id;
     return rc;
 }
-
 int osaura_scheduler_foreground_as(uint32_t subject, uint8_t terminal_id, uint32_t *task_id) {
     osaura_job_hot_request r = {0};
     r.subject = subject;
@@ -335,7 +336,6 @@ int osaura_scheduler_foreground_as(uint32_t subject, uint8_t terminal_id, uint32
     if (rc == 0 && task_id) *task_id = r.task_id;
     return rc;
 }
-
 int osaura_scheduler_wake_as(uint32_t subject, uint32_t task_id) {
     osaura_job_hot_request r = {0};
     r.subject = subject;
@@ -344,19 +344,19 @@ int osaura_scheduler_wake_as(uint32_t subject, uint32_t task_id) {
 }
 
 int osaura_scheduler_set_task_state(uint32_t task_id, osaura_task_state state) {
-    return osaura_scheduler_set_task_state_as(0u, task_id, state);
+    return osaura_scheduler_set_task_state_as(OSAURA_SECURITY_KERNEL_SUBJECT, task_id, state);
 }
 int osaura_scheduler_attach_program(uint32_t task_id, uint8_t terminal_id) {
-    return osaura_scheduler_attach_program_as(0u, task_id, terminal_id);
+    return osaura_scheduler_attach_program_as(OSAURA_SECURITY_KERNEL_SUBJECT, task_id, terminal_id);
 }
 int osaura_scheduler_background(uint8_t terminal_id, uint32_t *task_id) {
-    return osaura_scheduler_background_as(0u, terminal_id, task_id);
+    return osaura_scheduler_background_as(OSAURA_SECURITY_KERNEL_SUBJECT, terminal_id, task_id);
 }
 int osaura_scheduler_foreground(uint8_t terminal_id, uint32_t *task_id) {
-    return osaura_scheduler_foreground_as(0u, terminal_id, task_id);
+    return osaura_scheduler_foreground_as(OSAURA_SECURITY_KERNEL_SUBJECT, terminal_id, task_id);
 }
 int osaura_scheduler_wake(uint32_t task_id) {
-    return osaura_scheduler_wake_as(0u, task_id);
+    return osaura_scheduler_wake_as(OSAURA_SECURITY_KERNEL_SUBJECT, task_id);
 }
 
 uint32_t osaura_scheduler_foreground_task(uint8_t terminal_id) {
