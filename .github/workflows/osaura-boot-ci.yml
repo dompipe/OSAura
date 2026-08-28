@@ -40,13 +40,18 @@ jobs:
           test -s build/kernel.o
           test -s build/mm.o
           test -s build/scheduler.o
+          test -s build/usb-keyboard.o
           test -s build/jx-runtime.o
           test -s build/x86_64.o
           test -s build/bootx64.so
           nm build/kernel.o | grep -F 'osaura_kernel_main'
           nm build/kernel.o | grep -F 'osaura_ticks'
+          nm build/kernel.o | grep -F 'osaura_keyboard_submit'
           nm build/mm.o | grep -F 'osaura_vm_init'
           nm build/scheduler.o | grep -F 'osaura_scheduler_on_timer'
+          nm build/usb-keyboard.o | grep -F 'osaura_usb_keyboard_init'
+          nm build/usb-keyboard.o | grep -F 'osaura_usb_keyboard_poll'
+          nm build/usb-keyboard.o | grep -F 'osaura_usb_keyboard_ready'
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_load_book'
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_task'
           nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_bus_ticks'
@@ -82,7 +87,7 @@ jobs:
           mcopy -i build/osaura.img ::/OSAURA/runtime.64B build/runtime-from-image.64B
           cmp build/runtime.64B build/runtime-from-image.64B
 
-      - name: Boot preemptive JX runtime under OVMF
+      - name: Boot native USB keyboard and JX runtime under OVMF
         run: |
           if [ -f /usr/share/OVMF/OVMF_CODE.fd ] && [ -f /usr/share/OVMF/OVMF_VARS.fd ]; then
             OVMF_CODE=/usr/share/OVMF/OVMF_CODE.fd
@@ -109,6 +114,8 @@ jobs:
             -d int,cpu_reset \
             -D build/qemu-debug.log \
             -no-reboot \
+            -device qemu-xhci,id=xhci \
+            -device usb-kbd,bus=xhci.0 \
             -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
             -drive if=pflash,format=raw,file=build/OVMF_VARS.fd \
             -drive format=raw,file=build/osaura.img \
@@ -137,10 +144,15 @@ jobs:
             exit 1
           fi
 
-          # The runtime announces only after the compiler-authored Bag schema,
-          # all compact prepared-call tiers, O(1) hot routes, reactions, the
-          # generation 1->2 quiescent cutover, channels and both applied bus
-          # entrypoints have executed under real PIT preemption.
+          usb_seen=0
+          for _ in $(seq 1 80); do
+            if grep -Fq 'USB HID KEYBOARD: ACTIVE' build/qemu.log; then
+              usb_seen=1
+              break
+            fi
+            sleep 0.1
+          done
+
           jx_seen=0
           for _ in $(seq 1 80); do
             if grep -Fq 'JX GENERATION 1->2: ACTIVE' build/qemu.log && \
@@ -215,11 +227,12 @@ jobs:
           set -e
 
           cat build/qemu.log
-          if [ "$jx_seen" -ne 1 ] || [ "$help_seen" -ne 1 ] || [ "$vm_seen" -ne 1 ] || [ "$tasks_seen" -ne 1 ] || [ "$alloc_seen" -ne 1 ]; then
-            echo 'JX generation/hot-register scheduler gate failed; last QEMU interrupt trace lines:'
+          if [ "$usb_seen" -ne 1 ] || [ "$jx_seen" -ne 1 ] || [ "$help_seen" -ne 1 ] || [ "$vm_seen" -ne 1 ] || [ "$tasks_seen" -ne 1 ] || [ "$alloc_seen" -ne 1 ]; then
+            echo 'USB/JX scheduler gate failed; last QEMU interrupt trace lines:'
             tail -n 200 build/qemu-debug.log || true
           fi
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then exit "$rc"; fi
+          test "$usb_seen" -eq 1
           test "$jx_seen" -eq 1
           test "$help_seen" -eq 1
           test "$vm_seen" -eq 1
@@ -228,11 +241,13 @@ jobs:
           grep -Fq 'OSAURA KERNEL 0.5-DEV' build/qemu.log
           grep -Fq 'UEFI BOOT SERVICES: EXITED' build/qemu.log
           grep -Fq 'BOOT: CR3 OWNED' build/qemu.log
+          grep -Fq 'BOOT: USB HID KEYBOARD READY' build/qemu.log
           grep -Fq 'BOOT: SCHEDULER READY' build/qemu.log
           grep -Fq 'PAGE TABLES: OWNED' build/qemu.log
           grep -Fq 'SCHEDULER: READY' build/qemu.log
           grep -Fq 'PIT IRQ0: ACTIVE' build/qemu.log
           grep -Fq 'PS2 IRQ1: ACTIVE' build/qemu.log
+          grep -Fq 'USB HID KEYBOARD: ACTIVE' build/qemu.log
           grep -Fq 'JX 64B: VERIFIED' build/qemu.log
           grep -Fq 'JX 64B CODE/APPLIED-BUS: LOADED' build/qemu.log
           grep -Fq 'JX BAG SCHEMA: LINKED' build/qemu.log
