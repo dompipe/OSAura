@@ -2,6 +2,7 @@
 #include "mm.h"
 #include "scheduler.h"
 #include "usb.h"
+#include "net.h"
 
 #define GLYPH_W 5u
 #define GLYPH_H 7u
@@ -604,9 +605,10 @@ static void run_command(const char *line) {
     if (!line[0]) return;
     if (text_equal(line, "HELP")) {
         write_text("HELP ABOUT MEM VM TASKS TICKS ALLOC CLEAR HALT TERMINALS USB\n");
+        write_text("NET IP ROUTE ARP PING DNS RESOLVE NETSTAT CURL WGET FETCH\n");
     } else if (text_equal(line, "ABOUT")) {
         write_text("OSAURA NATIVE X86-64 KERNEL\n");
-        write_text("VM INTERRUPTS TASKS USB AND VIRTUAL TERMINALS OWNED\n");
+        write_text("VM INTERRUPTS TASKS USB VIRTUAL TERMINALS AND NETWORK RECOVERY OWNED\n");
     } else if (text_equal(line, "MEM")) {
         write_text("MEMORY MAP BYTES: ");
         write_u64(g_boot.memory_map_size);
@@ -644,6 +646,8 @@ static void run_command(const char *line) {
         write_text("CPU HALTED\n");
         osaura_arch_disable_interrupts();
         for (;;) __asm__ volatile("hlt");
+    } else if (osaura_net_command(line, write_text)) {
+        return;
     } else {
         write_text("UNKNOWN COMMAND\n");
     }
@@ -714,6 +718,10 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     int usb_ok = osaura_usb_init();
     serial_text(usb_ok ? "BOOT: USB XHCI READY\n" : "BOOT: USB XHCI FALLBACK\n");
 
+    serial_text("BOOT: NETWORK DISCOVERY\n");
+    osaura_net_init();
+    serial_text("BOOT: NETWORK CORE READY\n");
+
     interrupts_init();
     serial_text("BOOT: WAIT IRQ0\n");
     wait_for_timer_irq();
@@ -736,6 +744,7 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     write_text("PS2 IRQ1: ACTIVE\n");
     write_text(usb_ok ? "USB XHCI: ACTIVE\n" : "USB XHCI: FALLBACK\n");
     write_text(osaura_usb_keyboard_ready() ? "USB HID KEYBOARD: ACTIVE\n" : "USB HID KEYBOARD: NOT FOUND\n");
+    write_text("NETWORK RECOVERY COMMANDS: ACTIVE\n");
     write_text(allocator_ok ? "PAGE ALLOCATOR: ACTIVE\n" : "PAGE ALLOCATOR: FAILED\n");
     write_text("SCHEDULER: READY\n");
     write_text("VIRTUAL TERMINALS: 4\n");
