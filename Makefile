@@ -54,7 +54,7 @@ $(SCHED_OBJ): kernel/scheduler.c kernel/scheduler.h runtime/jx/jx-runtime.h | $(
 	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(USB_OBJ): kernel/usb.c kernel/usb.h | $(BUILD)
-	$(CC) $(KERNEL_CFLAGS) -c $< -o $@
+	$(CC) $(KERNEL_CFLAGS) -Wno-unused-function -c $< -o $@
 
 # Keep the already-gated verifier/prelinker source intact. The live tail is
 # concatenated into the same translation unit so it can reuse private verifier,
