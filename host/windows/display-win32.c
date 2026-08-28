@@ -25,8 +25,14 @@ static LRESULT CALLBACK display_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
     if (msg == WM_PAINT) {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(hwnd, &ps);
-        if (dc && g_memory_dc && g_width && g_height)
-            BitBlt(dc, 0, 0, (int)g_width, (int)g_height, g_memory_dc, 0, 0, SRCCOPY);
+        if (dc && g_memory_dc && g_width && g_height) {
+            int x = ps.rcPaint.left;
+            int y = ps.rcPaint.top;
+            int w = ps.rcPaint.right - ps.rcPaint.left;
+            int h = ps.rcPaint.bottom - ps.rcPaint.top;
+            if (w > 0 && h > 0)
+                BitBlt(dc, x, y, w, h, g_memory_dc, x, y, SRCCOPY);
+        }
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -133,7 +139,17 @@ int osaura_windows_display_backend_install(uint32_t width, uint32_t height) {
 
 int osaura_windows_display_present(void) {
     if (!g_window || !g_memory_dc) return -1;
-    InvalidateRect(g_window, 0, FALSE);
+    osaura_display_rect dirty;
+    int changed = osaura_display_dirty_take(&dirty);
+    if (changed < 0) return changed;
+    if (changed == 0) return 0;
+
+    RECT rect;
+    rect.left = (LONG)dirty.x;
+    rect.top = (LONG)dirty.y;
+    rect.right = (LONG)(dirty.x + dirty.width);
+    rect.bottom = (LONG)(dirty.y + dirty.height);
+    if (!InvalidateRect(g_window, &rect, FALSE)) return -(int)GetLastError();
     UpdateWindow(g_window);
     return 0;
 }
@@ -141,6 +157,7 @@ int osaura_windows_display_present(void) {
 int osaura_windows_display_show(void) {
     if (!g_window) return -1;
     ShowWindow(g_window, SW_SHOW);
+    osaura_display_dirty_all();
     return osaura_windows_display_present();
 }
 
