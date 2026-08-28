@@ -20,7 +20,9 @@
 #define OSAURA_HOT_BANK_TERMINAL 5u
 #define OSAURA_HOT_BANK_USB      6u
 #define OSAURA_HOT_BANK_WIFI     7u
-/* 8..15 remain available for measured future hot paths. */
+#define OSAURA_HOT_BANK_CLOCK    8u
+#define OSAURA_HOT_BANK_MEMORY   9u
+/* 10..15 remain available for measured future hot paths. */
 
 typedef int (*osaura_shadow_fn)(void *context, void *request);
 
@@ -49,10 +51,6 @@ static inline uint8_t osaura_hot_shadow(uint8_t opcode) {
     return (uint8_t)(opcode & OSAURA_SHADOW_SLOT_MASK);
 }
 
-/*
- * Global kernel hot map. Binding is boot/prelink work. Dispatch is the awake
- * path: mask one byte, fetch one prelinked slot, call native code.
- */
 void osaura_hot_init(void);
 int osaura_hot_bind(uint8_t bank,
                     uint8_t shadow,
