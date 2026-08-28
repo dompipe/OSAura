@@ -86,6 +86,20 @@ int main(void) {
     if (!expect(osaura_processor_bus_complete(osaura_processor_bus_get_info()->generation) == 0,
                 "bus generation complete")) return 1;
 
+    uint32_t old_window = window;
+    if (!expect(osaura_jx11_window_destroy_as(1u, old_window) == 0, "window destroy")) return 1;
+    osaura_jx11_window_bag_view stale = {0};
+    if (!expect(osaura_jx11_window_bag_get(old_window, &stale) == 0,
+                "destroyed window drops borrowed Bag view")) return 1;
+
+    uint32_t reused = OSAURA_JX11_WINDOW_NONE;
+    if (!expect(osaura_jx11_window_create(1u, OSAURA_JX11_WINDOW_NONE, 1, 1, 8u, 8u, &reused) == 0,
+                "replacement window create")) return 1;
+    if (!expect(reused == old_window, "window slot reused")) return 1;
+    if (!expect(osaura_jx11_window_bag_get(reused, &stale) == 0,
+                "reused window does not inherit old Bag")) return 1;
+    if (!expect(osaura_jx11_window_destroy_as(1u, reused) == 0, "replacement window destroy")) return 1;
+
     osaura_jx11_window_bag_shutdown();
     osaura_jx11_window_shutdown();
     osaura_jx11_surface_shutdown();
