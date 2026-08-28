@@ -1,5 +1,6 @@
 #include "e1000.h"
 #include "hot-shadow.h"
+#include "security.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -74,6 +75,7 @@ typedef struct __attribute__((packed, aligned(16))) {
 } e1000_tx_desc;
 
 typedef struct {
+    uint32_t subject;
     void *frame;
     const void *const_frame;
     uint16_t capacity;
@@ -273,6 +275,8 @@ static int hot_tx_frame(void *context, void *opaque) {
     (void)context;
     e1000_hot_request *request = (e1000_hot_request *)opaque;
     if (!request) return 0;
+    if (request->subject != OSAURA_SECURITY_KERNEL_SUBJECT &&
+        !osaura_security_check(request->subject, OSAURA_CAP_NETWORK)) return -2;
     return e1000_transmit_raw(request->const_frame, request->bytes);
 }
 
@@ -315,13 +319,18 @@ const osaura_mac_address *osaura_e1000_mac(void) {
     return g_ready ? &g_mac : NULL;
 }
 
-int osaura_e1000_transmit(const void *frame, uint16_t bytes) {
+int osaura_e1000_transmit_as(uint32_t subject, const void *frame, uint16_t bytes) {
     e1000_hot_request request = {0};
+    request.subject = subject;
     request.const_frame = frame;
     request.bytes = bytes;
     return osaura_hot_dispatch_opcode(
         osaura_hot_opcode(OSAURA_HOT_BANK_NETWORK, OSAURA_NET_HOT_TX_FRAME),
         &request);
+}
+
+int osaura_e1000_transmit(const void *frame, uint16_t bytes) {
+    return osaura_e1000_transmit_as(OSAURA_SECURITY_KERNEL_SUBJECT, frame, bytes);
 }
 
 int osaura_e1000_receive(void *frame, uint16_t capacity, uint16_t *bytes_out) {
