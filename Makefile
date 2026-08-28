@@ -41,7 +41,7 @@ $(EFI): $(SO)
 		--target=efi-app-x86_64 $< $@
 
 image: $(EFI)
-	./scripts/make-image.sh
+	bash scripts/make-image.sh
 
 clean:
 	rm -rf $(BUILD)
