@@ -7,10 +7,12 @@
 #define CELL_H ((GLYPH_H + 1u) * SCALE)
 #define MARGIN 16u
 #define LINE_MAX 64u
+#define COM1 0x3F8u
 
 static osaura_boot_info g_boot;
 static uint32_t g_col;
 static uint32_t g_row;
+static uint8_t g_serial_ready;
 
 static const uint8_t glyphs[43][7] = {
     {0,0,0,0,0,0,0},
@@ -29,6 +31,38 @@ static const uint8_t glyphs[43][7] = {
     {14,17,17,15,1,1,14},{0,4,0,0,4,0,0},{0,0,0,31,0,0,0},
     {0,0,0,0,0,12,12},{0,0,4,0,4,0,0},{0,2,4,8,16,0,0},{0,4,2,31,2,4,0}
 };
+
+static inline uint8_t in8(uint16_t port) {
+    uint8_t value;
+    __asm__ volatile("inb %1, %0" : "=a"(value) : "Nd"(port));
+    return value;
+}
+
+static inline void out8(uint16_t port, uint8_t value) {
+    __asm__ volatile("outb %0, %1" : : "a"(value), "Nd"(port));
+}
+
+static void serial_init(void) {
+    out8(COM1 + 1u, 0x00u);
+    out8(COM1 + 3u, 0x80u);
+    out8(COM1 + 0u, 0x03u);
+    out8(COM1 + 1u, 0x00u);
+    out8(COM1 + 3u, 0x03u);
+    out8(COM1 + 2u, 0xC7u);
+    out8(COM1 + 4u, 0x0Bu);
+    g_serial_ready = 1u;
+}
+
+static void serial_char(char c) {
+    if (!g_serial_ready) return;
+    if (c == '\n') serial_char('\r');
+    while (!(in8(COM1 + 5u) & 0x20u)) __asm__ volatile("pause");
+    out8(COM1, (uint8_t)c);
+}
+
+static void serial_text(const char *s) {
+    while (*s) serial_char(*s++);
+}
 
 static int glyph_index(char c) {
     if (c == ' ') return 0;
@@ -85,6 +119,7 @@ static void newline(void) {
 }
 
 static void draw_char(char c) {
+    serial_char(c);
     if (c == '\n') { newline(); return; }
     int gi = glyph_index(c);
     uint32_t fg = pack_rgb(235, 235, 235);
@@ -107,6 +142,7 @@ static void erase_char(void) {
     if (g_col == 0) return;
     --g_col;
     fill_cell(g_col, g_row, pack_rgb(0, 0, 0));
+    serial_text("\b \b");
 }
 
 static void write_text(const char *s) {
@@ -133,12 +169,6 @@ static int text_equal(const char *a, const char *b) {
         if (ca != cb) return 0;
     }
     return *a == 0 && *b == 0;
-}
-
-static inline uint8_t in8(uint16_t port) {
-    uint8_t value;
-    __asm__ volatile("inb %1, %0" : "=a"(value) : "Nd"(port));
-    return value;
 }
 
 static char ps2_poll_char(void) {
@@ -187,6 +217,7 @@ static void run_command(const char *line) {
         write_text("\n");
     } else if (text_equal(line, "CLEAR")) {
         clear_screen();
+        serial_text("\nSCREEN CLEARED\n");
     } else if (text_equal(line, "HALT")) {
         write_text("CPU HALTED\n");
         __asm__ volatile("cli");
@@ -211,6 +242,7 @@ __attribute__((noreturn)) static void terminal_loop(void) {
         if (c == '\n') {
             line[length] = 0;
             newline();
+            serial_text("\r\n");
             run_command(line);
             length = 0;
             print_prompt();
@@ -224,7 +256,9 @@ __attribute__((noreturn)) static void terminal_loop(void) {
 }
 
 __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) {
+    serial_init();
     if (!boot || boot->version != OSAURA_BOOT_INFO_VERSION || !boot->framebuffer_base) {
+        serial_text("OSAURA KERNEL BOOT INFO ERROR\n");
         __asm__ volatile("cli");
         for (;;) __asm__ volatile("hlt");
     }
@@ -236,7 +270,8 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     write_text("UEFI BOOT SERVICES: EXITED\n");
     write_text("FRAMEBUFFER: OWNED\n");
     write_text("MEMORY MAP: CAPTURED\n");
-    write_text("PS2 TERMINAL: ACTIVE\n\n");
+    write_text("PS2 TERMINAL: ACTIVE\n");
+    write_text("SERIAL COM1: ACTIVE\n\n");
     write_text("TYPE HELP FOR COMMANDS\n\n");
     terminal_loop();
 }
