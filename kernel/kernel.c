@@ -751,6 +751,5 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     write_text("ALT-TAB TERMINAL SWITCH: ACTIVE\n");
     write_text("SERIAL COM1: ACTIVE\n\n");
     write_text("TYPE HELP FOR COMMANDS\n\n");
-    g_terminals[0].initialized = 1u;
     terminal_loop();
 }
