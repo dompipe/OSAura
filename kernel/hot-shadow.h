@@ -55,6 +55,9 @@ static inline uint8_t osaura_hot_shadow(uint8_t opcode) {
     return (uint8_t)(opcode & OSAURA_SHADOW_SLOT_MASK);
 }
 
+/* Reset only the shared hot table. Hosted runtimes use this before installing
+ * their own backends. Native OSAura uses osaura_hot_init(). */
+void osaura_hot_reset(void);
 void osaura_hot_init(void);
 int osaura_hot_bind(uint8_t bank,
                     uint8_t shadow,
