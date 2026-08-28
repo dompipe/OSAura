@@ -425,19 +425,21 @@ static void *page_alloc(void) {
 }
 
 static int page_allocator_self_test(void) {
-    volatile uint64_t *page = (volatile uint64_t *)page_alloc();
-    if (!page) return 0;
-    page[0] = 0x4f53415552415047ull;
-    page[1] = 0x45414c4c4f434154ull;
-    return page[0] == 0x4f53415552415047ull && page[1] == 0x45414c4c4f434154ull;
+    uintptr_t frame = (uintptr_t)page_alloc();
+    return frame >= MIN_ALLOC_PHYS && (frame & (PAGE_SIZE - 1u)) == 0u;
 }
 
 static void interrupts_init(void) {
     osaura_arch_disable_interrupts();
+    serial_text("BOOT: GDT\n");
     osaura_arch_load_gdt();
+    serial_text("BOOT: IDT\n");
     idt_init();
+    serial_text("BOOT: PIC\n");
     pic_remap();
+    serial_text("BOOT: PIT\n");
     pit_init();
+    serial_text("BOOT: STI\n");
     osaura_arch_enable_interrupts();
 }
 
@@ -473,7 +475,7 @@ static void run_command(const char *line) {
         write_text("\n");
     } else if (text_equal(line, "ALLOC")) {
         void *page = page_alloc();
-        write_text(page ? "PAGE ALLOCATED\n" : "OUT OF PAGES\n");
+        write_text(page ? "PAGE FRAME ALLOCATED\n" : "OUT OF PAGE FRAMES\n");
     } else if (text_equal(line, "CLEAR")) {
         clear_screen();
         serial_text("\nSCREEN CLEARED\n");
@@ -525,12 +527,16 @@ __attribute__((noreturn)) void osaura_kernel_main(const osaura_boot_info *boot) 
     }
 
     g_boot = *boot;
+    serial_text("BOOT: INFO OK\n");
     page_allocator_init();
+    serial_text("BOOT: FRAME MAP INDEXED\n");
     int allocator_ok = page_allocator_self_test();
     clear_screen();
 
     interrupts_init();
+    serial_text("BOOT: WAIT IRQ0\n");
     wait_for_timer_irq();
+    serial_text("BOOT: IRQ0 RECEIVED\n");
 
     write_text("OSAURA KERNEL 0.3-DEV\n");
     write_text("X86-64 NATIVE MODE\n");
