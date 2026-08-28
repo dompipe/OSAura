@@ -1,4 +1,5 @@
 #include "scheduler.h"
+#include "jx-runtime.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -21,8 +22,8 @@ typedef struct {
 } osaura_task;
 
 static osaura_task g_tasks[OSAURA_TASK_MAX];
-static uint64_t g_worker_a_stack[TASK_STACK_QWORDS] __attribute__((aligned(16)));
-static uint64_t g_worker_b_stack[TASK_STACK_QWORDS] __attribute__((aligned(16)));
+static uint64_t g_jx_stack[TASK_STACK_QWORDS] __attribute__((aligned(16)));
+static uint64_t g_idle_stack[TASK_STACK_QWORDS] __attribute__((aligned(16)));
 static uint32_t g_current;
 static uint32_t g_quantum_ticks;
 static uint8_t g_initialized;
@@ -32,7 +33,7 @@ __attribute__((noreturn)) static void task_returned(void) {
     for (;;) __asm__ volatile("cli; hlt");
 }
 
-__attribute__((noreturn, noinline)) static void worker_idle(void) {
+__attribute__((noreturn, noinline)) static void osaura_idle_task(void) {
     for (;;) __asm__ volatile("hlt");
 }
 
@@ -85,13 +86,17 @@ void osaura_scheduler_init(void) {
 
     /* Task zero is the bootstrap shell. Its frame is captured by IRQ0. */
     g_tasks[0].ready = 1u;
-    g_tasks[1].saved_rsp = build_initial_frame(g_worker_a_stack,
+
+    /* Task one is the native JX applied-runtime service. */
+    g_tasks[1].saved_rsp = build_initial_frame(g_jx_stack,
                                                TASK_STACK_QWORDS,
-                                               worker_idle);
+                                               osaura_jx_runtime_task);
     g_tasks[1].ready = g_tasks[1].saved_rsp != 0;
-    g_tasks[2].saved_rsp = build_initial_frame(g_worker_b_stack,
+
+    /* Task two is the kernel idle thread used when no service work is needed. */
+    g_tasks[2].saved_rsp = build_initial_frame(g_idle_stack,
                                                TASK_STACK_QWORDS,
-                                               worker_idle);
+                                               osaura_idle_task);
     g_tasks[2].ready = g_tasks[2].saved_rsp != 0;
 
     g_current = 0;
@@ -142,8 +147,8 @@ uint32_t osaura_scheduler_current_task(void) {
 const char *osaura_scheduler_task_name(uint32_t task_id) {
     switch (task_id) {
         case 0: return "SHELL";
-        case 1: return "WORKER-A";
-        case 2: return "WORKER-B";
+        case 1: return "JX-RUNTIME";
+        case 2: return "IDLE";
         default: return "UNKNOWN";
     }
 }
