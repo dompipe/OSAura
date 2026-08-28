@@ -1,7 +1,7 @@
 #ifdef _WIN64
 
 #include "../host/windows/runtime64.h"
-#include "../host/windows/processor-bus-win64.h"
+#include "../host/windows/processor-bus-autobind-win64.h"
 #include "../kernel/processor-bus.h"
 #include "../kernel/security.h"
 
@@ -14,9 +14,13 @@ static int expect(int ok, const char *label) {
 }
 
 int main(void) {
+    if (!expect(osaura_windows_processor_bus64_autobind_status() == 0,
+                "processor bus bound by CRT before main")) return 1;
+    if (!expect(osaura_processor_bus_get_info() != 0,
+                "shared processor bus already initialized")) return 1;
+
     osaura_security_init();
     if (!expect(osaura_windows_task64_init() == 0, "task64 init")) return 1;
-    if (!expect(osaura_windows_processor_bus64_bind() == 0, "bus64 bind")) return 1;
 
     static const uint64_t value = 0x123456789abcdef0ull;
     osaura_processor_bus_change change = {0};
@@ -54,7 +58,7 @@ int main(void) {
     uint64_t generation = osaura_processor_bus_get_info()->generation;
     if (!expect(osaura_processor_bus_complete(generation) == 0, "generation complete")) return 1;
 
-    puts("WSJX64 PROCESSOR BUS: PASS");
+    puts("WSJX64 PROCESSOR BUS AUTOBIND: PASS");
     return 0;
 }
 
