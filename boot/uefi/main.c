@@ -1,146 +1,165 @@
 #include <efi.h>
 #include <efilib.h>
 
-#define OSAURA_LINE_MAX 128
+#include "../../kernel/boot-info.h"
 
-static EFI_SYSTEM_TABLE *g_st;
+extern void osaura_kernel_main(const osaura_boot_info *boot);
 
-static void print_prompt(void) {
-    Print(L"osaura> ");
+static EFI_GUID g_gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
+
+static EFI_STATUS locate_framebuffer(EFI_SYSTEM_TABLE *st, osaura_boot_info *boot) {
+    EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
+    EFI_STATUS status = uefi_call_wrapper(
+        st->BootServices->LocateProtocol,
+        3,
+        &g_gop_guid,
+        NULL,
+        (VOID **)&gop);
+    if (EFI_ERROR(status) || !gop || !gop->Mode || !gop->Mode->Info)
+        return EFI_NOT_FOUND;
+
+    boot->width = gop->Mode->Info->HorizontalResolution;
+    boot->height = gop->Mode->Info->VerticalResolution;
+    boot->pixels_per_scanline = gop->Mode->Info->PixelsPerScanLine;
+    boot->framebuffer_base = (uint64_t)gop->Mode->FrameBufferBase;
+    boot->framebuffer_size = (uint64_t)gop->Mode->FrameBufferSize;
+
+    switch (gop->Mode->Info->PixelFormat) {
+        case PixelRedGreenBlueReserved8BitPerColor:
+            boot->pixel_format = OSAURA_PIXEL_RGBX8;
+            break;
+        case PixelBlueGreenRedReserved8BitPerColor:
+            boot->pixel_format = OSAURA_PIXEL_BGRX8;
+            break;
+        default:
+            boot->pixel_format = OSAURA_PIXEL_UNKNOWN;
+            return EFI_UNSUPPORTED;
+    }
+    return EFI_SUCCESS;
 }
 
-static void print_banner(void) {
-    Print(L"\r\nOSAura 0.1-dev\r\n");
-    Print(L"x86_64 UEFI terminal\r\n");
-    Print(L"Type 'help' for commands.\r\n\r\n");
-}
-
-static void print_memory_summary(void) {
+static EFI_STATUS capture_memory_map(EFI_SYSTEM_TABLE *st,
+                                     EFI_MEMORY_DESCRIPTOR **map_out,
+                                     UINTN *capacity_out,
+                                     UINTN *map_size_out,
+                                     UINTN *map_key_out,
+                                     UINTN *descriptor_size_out,
+                                     UINT32 *descriptor_version_out) {
     UINTN map_size = 0;
     UINTN map_key = 0;
     UINTN descriptor_size = 0;
     UINT32 descriptor_version = 0;
 
     EFI_STATUS status = uefi_call_wrapper(
-        g_st->BootServices->GetMemoryMap,
+        st->BootServices->GetMemoryMap,
         5,
         &map_size,
         NULL,
         &map_key,
         &descriptor_size,
         &descriptor_version);
+    if (status != EFI_BUFFER_TOO_SMALL || descriptor_size == 0)
+        return status;
 
-    if (status != EFI_BUFFER_TOO_SMALL || descriptor_size == 0) {
-        Print(L"memory map unavailable: %r\r\n", status);
-        return;
+    UINTN capacity = map_size + descriptor_size * 8u;
+    EFI_MEMORY_DESCRIPTOR *map = NULL;
+    status = uefi_call_wrapper(
+        st->BootServices->AllocatePool,
+        3,
+        EfiLoaderData,
+        capacity,
+        (VOID **)&map);
+    if (EFI_ERROR(status)) return status;
+
+    map_size = capacity;
+    status = uefi_call_wrapper(
+        st->BootServices->GetMemoryMap,
+        5,
+        &map_size,
+        map,
+        &map_key,
+        &descriptor_size,
+        &descriptor_version);
+    if (EFI_ERROR(status)) {
+        uefi_call_wrapper(st->BootServices->FreePool, 1, map);
+        return status;
     }
 
-    UINTN descriptors = map_size / descriptor_size;
-    Print(L"UEFI memory map requires %lu bytes (%lu descriptors, descriptor size %lu).\r\n",
-          map_size,
-          descriptors,
-          descriptor_size);
-}
-
-static UINTN read_line(CHAR16 *buffer, UINTN capacity) {
-    UINTN length = 0;
-    if (!buffer || capacity < 2) return 0;
-
-    for (;;) {
-        UINTN event_index = 0;
-        EFI_INPUT_KEY key;
-        EFI_STATUS status = uefi_call_wrapper(
-            g_st->BootServices->WaitForEvent,
-            3,
-            1,
-            &g_st->ConIn->WaitForKey,
-            &event_index);
-        if (EFI_ERROR(status)) continue;
-
-        status = uefi_call_wrapper(g_st->ConIn->ReadKeyStroke, 2, g_st->ConIn, &key);
-        if (EFI_ERROR(status)) continue;
-
-        if (key.UnicodeChar == L'\r') {
-            Print(L"\r\n");
-            break;
-        }
-
-        if (key.UnicodeChar == L'\b') {
-            if (length > 0) {
-                --length;
-                Print(L"\b \b");
-            }
-            continue;
-        }
-
-        if (key.UnicodeChar >= L' ' && key.UnicodeChar <= L'~' && length + 1 < capacity) {
-            buffer[length++] = key.UnicodeChar;
-            Print(L"%c", key.UnicodeChar);
-        }
-    }
-
-    buffer[length] = L'\0';
-    return length;
-}
-
-static void run_command(const CHAR16 *line) {
-    if (!line || line[0] == L'\0') return;
-
-    if (StrCmp((CHAR16 *)line, L"help") == 0) {
-        Print(L"help   - show commands\r\n");
-        Print(L"about  - describe this build\r\n");
-        Print(L"mem    - query the UEFI memory map\r\n");
-        Print(L"clear  - clear the terminal\r\n");
-        Print(L"reboot - reboot through UEFI\r\n");
-        return;
-    }
-
-    if (StrCmp((CHAR16 *)line, L"about") == 0) {
-        Print(L"OSAura terminal-first operating system bootstrap.\r\n");
-        Print(L"JX runtime integration follows the kernel/UEFI boundary.\r\n");
-        return;
-    }
-
-    if (StrCmp((CHAR16 *)line, L"mem") == 0) {
-        print_memory_summary();
-        return;
-    }
-
-    if (StrCmp((CHAR16 *)line, L"clear") == 0) {
-        uefi_call_wrapper(g_st->ConOut->ClearScreen, 1, g_st->ConOut);
-        return;
-    }
-
-    if (StrCmp((CHAR16 *)line, L"reboot") == 0) {
-        uefi_call_wrapper(g_st->RuntimeServices->ResetSystem,
-                          4,
-                          EfiResetCold,
-                          EFI_SUCCESS,
-                          0,
-                          NULL);
-        return;
-    }
-
-    Print(L"unknown command: %s\r\n", line);
+    *map_out = map;
+    *capacity_out = capacity;
+    *map_size_out = map_size;
+    *map_key_out = map_key;
+    *descriptor_size_out = descriptor_size;
+    *descriptor_version_out = descriptor_version;
+    return EFI_SUCCESS;
 }
 
 EFI_STATUS EFIAPI efi_main(EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *system_table) {
-    (void)image_handle;
     InitializeLib(image_handle, system_table);
-    g_st = system_table;
 
-    uefi_call_wrapper(g_st->ConOut->Reset, 2, g_st->ConOut, FALSE);
-    uefi_call_wrapper(g_st->ConOut->ClearScreen, 1, g_st->ConOut);
+    uefi_call_wrapper(system_table->ConOut->Reset, 2, system_table->ConOut, FALSE);
+    uefi_call_wrapper(system_table->ConOut->ClearScreen, 1, system_table->ConOut);
+    Print(L"\r\nOSAura loader 0.2-dev\r\n");
+    Print(L"Preparing native kernel handoff...\r\n");
 
-    print_banner();
-    print_memory_summary();
+    osaura_boot_info boot;
+    SetMem(&boot, sizeof boot, 0);
+    boot.version = OSAURA_BOOT_INFO_VERSION;
 
-    CHAR16 line[OSAURA_LINE_MAX];
-    for (;;) {
-        print_prompt();
-        read_line(line, OSAURA_LINE_MAX);
-        run_command(line);
+    EFI_STATUS status = locate_framebuffer(system_table, &boot);
+    if (EFI_ERROR(status)) {
+        Print(L"GOP framebuffer unavailable: %r\r\n", status);
+        return status;
     }
 
+    EFI_MEMORY_DESCRIPTOR *map = NULL;
+    UINTN map_capacity = 0;
+    UINTN map_size = 0;
+    UINTN map_key = 0;
+    UINTN descriptor_size = 0;
+    UINT32 descriptor_version = 0;
+
+    status = capture_memory_map(system_table,
+                                &map,
+                                &map_capacity,
+                                &map_size,
+                                &map_key,
+                                &descriptor_size,
+                                &descriptor_version);
+    if (EFI_ERROR(status)) {
+        Print(L"Memory map capture failed: %r\r\n", status);
+        return status;
+    }
+
+    status = uefi_call_wrapper(system_table->BootServices->ExitBootServices,
+                               2,
+                               image_handle,
+                               map_key);
+
+    if (status == EFI_INVALID_PARAMETER) {
+        map_size = map_capacity;
+        status = uefi_call_wrapper(system_table->BootServices->GetMemoryMap,
+                                   5,
+                                   &map_size,
+                                   map,
+                                   &map_key,
+                                   &descriptor_size,
+                                   &descriptor_version);
+        if (!EFI_ERROR(status)) {
+            status = uefi_call_wrapper(system_table->BootServices->ExitBootServices,
+                                       2,
+                                       image_handle,
+                                       map_key);
+        }
+    }
+
+    if (EFI_ERROR(status)) return status;
+
+    boot.memory_map = (uint64_t)(uintptr_t)map;
+    boot.memory_map_size = (uint64_t)map_size;
+    boot.memory_descriptor_size = (uint64_t)descriptor_size;
+    boot.memory_descriptor_version = descriptor_version;
+
+    osaura_kernel_main(&boot);
     return EFI_SUCCESS;
 }
