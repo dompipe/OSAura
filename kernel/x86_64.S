@@ -112,16 +112,52 @@ ISR_ERR   29
 ISR_ERR   30
 ISR_NOERR 31
 
-# IRQ0 is deliberately kept as a minimal assembly path. It proves the
-# descriptor/PIC/iret path independently of the C interrupt ABI and gives the
-# scheduler clock a very small hot path.
+# IRQ0 is OSAura's preemption boundary. Save the complete integer context,
+# acknowledge the PIC, ask the scheduler which saved frame should run next,
+# switch RSP to that frame, then restore/iretq into the selected task.
 .global osaura_isr_32
 .type osaura_isr_32,@function
 osaura_isr_32:
+    cld
     pushq %rax
+    pushq %rbx
+    pushq %rcx
+    pushq %rdx
+    pushq %rsi
+    pushq %rdi
+    pushq %rbp
+    pushq %r8
+    pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+
     incq osaura_ticks(%rip)
     movb $0x20, %al
     outb %al, $0x20
+
+    movq %rsp, %rdi
+    andq $-16, %rsp
+    call osaura_scheduler_on_timer
+    movq %rax, %rsp
+
+    popq %r15
+    popq %r14
+    popq %r13
+    popq %r12
+    popq %r11
+    popq %r10
+    popq %r9
+    popq %r8
+    popq %rbp
+    popq %rdi
+    popq %rsi
+    popq %rdx
+    popq %rcx
+    popq %rbx
     popq %rax
     iretq
 
@@ -192,8 +228,8 @@ osaura_gdt:
     .quad 0x00af9a000000ffff
     .quad 0x00cf92000000ffff
 
-# These are signed offsets from osaura_isr_anchor, not absolute pointers.
-# That keeps the table valid after the PE/COFF image is relocated by UEFI.
+# Signed offsets from osaura_isr_anchor stay valid after UEFI relocates the
+# PE/COFF image. C reconstructs each runtime handler address from the anchor.
 .align 4
 .global osaura_isr_offsets
 osaura_isr_offsets:
