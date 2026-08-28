@@ -9,6 +9,16 @@
 #define OSAURA_SCHEDULER_QUANTUM_TICKS 5u
 #define OSAURA_TASK_NONE UINT32_MAX
 
+/* Bank 3 / opcodes 0x98..0x9f. */
+#define OSAURA_JOB_HOT_ATTACH       0u
+#define OSAURA_JOB_HOT_BACKGROUND   1u
+#define OSAURA_JOB_HOT_FOREGROUND   2u
+#define OSAURA_JOB_HOT_SET_STATE    3u
+#define OSAURA_JOB_HOT_GET_FG       4u
+#define OSAURA_JOB_HOT_BG_COUNT     5u
+#define OSAURA_JOB_HOT_BG_AT        6u
+#define OSAURA_JOB_HOT_WAKE         7u
+
 typedef enum {
     OSAURA_TASK_UNUSED = 0,
     OSAURA_TASK_RUNNABLE = 1,
@@ -21,6 +31,14 @@ typedef enum {
     OSAURA_TASK_ROLE_SERVICE = 1,
     OSAURA_TASK_ROLE_PROGRAM = 2
 } osaura_task_role;
+
+typedef struct {
+    uint32_t task_id;
+    uint32_t value;
+    uint32_t stack_index;
+    osaura_task_state state;
+    uint8_t terminal_id;
+} osaura_job_hot_request;
 
 void osaura_scheduler_init(void);
 void osaura_scheduler_start(void);
@@ -38,10 +56,9 @@ int osaura_scheduler_running(void);
 /*
  * Kernel job-control boundary.
  *
- * A program task may be attached to a terminal foreground or placed in the
- * background while remaining runnable. bg pushes onto a LIFO stack; fg pops
- * the most recently backgrounded valid program. Terminal switching never
- * changes scheduling state.
+ * All repeatable job operations enter bank 3 as [1][0011][shadow].  Textual
+ * shell commands remain cold; after validation they arrive here as a compact
+ * request and execute through one of eight prelinked shadows.
  */
 int osaura_scheduler_attach_program(uint32_t task_id, uint8_t terminal_id);
 int osaura_scheduler_background(uint8_t terminal_id, uint32_t *task_id);
@@ -50,5 +67,6 @@ uint32_t osaura_scheduler_foreground_task(uint8_t terminal_id);
 uint32_t osaura_scheduler_background_count(void);
 uint32_t osaura_scheduler_background_task(uint32_t stack_index);
 int osaura_scheduler_set_task_state(uint32_t task_id, osaura_task_state state);
+int osaura_scheduler_wake(uint32_t task_id);
 
 #endif
