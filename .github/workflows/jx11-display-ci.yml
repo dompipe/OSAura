@@ -9,8 +9,11 @@ on:
       - 'runtime/jx/jx11-display.h'
       - 'runtime/jx/jx11-surface.c'
       - 'runtime/jx/jx11-surface.h'
+      - 'runtime/jx/jx11-window.c'
+      - 'runtime/jx/jx11-window.h'
       - 'tests/display-driver-test.c'
       - 'tests/jx11-surface-test.c'
+      - 'tests/jx11-window-test.c'
       - '.github/workflows/jx11-display-ci.yml'
   pull_request:
     paths:
@@ -20,8 +23,11 @@ on:
       - 'runtime/jx/jx11-display.h'
       - 'runtime/jx/jx11-surface.c'
       - 'runtime/jx/jx11-surface.h'
+      - 'runtime/jx/jx11-window.c'
+      - 'runtime/jx/jx11-window.h'
       - 'tests/display-driver-test.c'
       - 'tests/jx11-surface-test.c'
+      - 'tests/jx11-window-test.c'
       - '.github/workflows/jx11-display-ci.yml'
 
 jobs:
@@ -43,3 +49,10 @@ jobs:
           -Ikernel -Iruntime/jx -o jx11-surface-test
       - name: Run JX11 surface compositor test
         run: ./jx11-surface-test
+      - name: Build JX11 window manager test
+        run: >-
+          gcc -std=c11 -Wall -Wextra -Werror -O2
+          kernel/display.c runtime/jx/jx11-surface.c runtime/jx/jx11-window.c tests/jx11-window-test.c
+          -Ikernel -Iruntime/jx -o jx11-window-test
+      - name: Run JX11 window manager test
+        run: ./jx11-window-test
