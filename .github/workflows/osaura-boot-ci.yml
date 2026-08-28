@@ -5,6 +5,7 @@ on:
     paths:
       - 'boot/**'
       - 'kernel/**'
+      - 'runtime/**'
       - 'scripts/make-image.sh'
       - 'Makefile'
       - '.github/workflows/osaura-boot-ci.yml'
@@ -12,6 +13,7 @@ on:
     paths:
       - 'boot/**'
       - 'kernel/**'
+      - 'runtime/**'
       - 'scripts/make-image.sh'
       - 'Makefile'
       - '.github/workflows/osaura-boot-ci.yml'
@@ -36,12 +38,16 @@ jobs:
           test -s build/kernel.o
           test -s build/mm.o
           test -s build/scheduler.o
+          test -s build/jx-runtime.o
           test -s build/x86_64.o
           test -s build/bootx64.so
           nm build/kernel.o | grep -F 'osaura_kernel_main'
           nm build/kernel.o | grep -F 'osaura_ticks'
           nm build/mm.o | grep -F 'osaura_vm_init'
           nm build/scheduler.o | grep -F 'osaura_scheduler_on_timer'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_task'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_bus_ticks'
+          nm build/jx-runtime.o | grep -F 'osaura_jx_runtime_bus_collects'
           nm build/x86_64.o | grep -F 'osaura_arch_write_cr3'
           nm build/x86_64.o | grep -F 'osaura_isr_32'
           nm build/x86_64.o | grep -F 'osaura_isr_33'
@@ -60,7 +66,7 @@ jobs:
           mdir -i build/osaura.img ::/EFI/BOOT
           mdir -i build/osaura.img ::/OSAURA
 
-      - name: Boot preemptive kernel under OVMF
+      - name: Boot preemptive JX runtime under OVMF
         run: |
           if [ -f /usr/share/OVMF/OVMF_CODE.fd ] && [ -f /usr/share/OVMF/OVMF_VARS.fd ]; then
             OVMF_CODE=/usr/share/OVMF/OVMF_CODE.fd
@@ -115,9 +121,14 @@ jobs:
             exit 1
           fi
 
-          # Give the scheduler several complete round-robin quanta before
-          # driving the shell through the IRQ1 keyboard queue.
-          sleep 0.4
+          # Give the scheduler several complete round-robin quanta. The JX
+          # service announces only after both stable applied bus entries have
+          # executed successfully inside task 1.
+          jx_seen=0
+          for _ in $(seq 1 60); do
+            if grep -Fq 'JX BUS.COLLECT: ACTIVE' build/qemu.log; then jx_seen=1; break; fi
+            sleep 0.1
+          done
 
           {
             echo 'sendkey h'
@@ -156,7 +167,7 @@ jobs:
 
           tasks_seen=0
           for _ in $(seq 1 60); do
-            if grep -Fq 'WORKER-B TICKS:' build/qemu.log; then tasks_seen=1; break; fi
+            if grep -Fq 'IDLE TICKS:' build/qemu.log; then tasks_seen=1; break; fi
             sleep 0.1
           done
 
@@ -182,11 +193,12 @@ jobs:
           set -e
 
           cat build/qemu.log
-          if [ "$help_seen" -ne 1 ] || [ "$vm_seen" -ne 1 ] || [ "$tasks_seen" -ne 1 ] || [ "$alloc_seen" -ne 1 ]; then
-            echo 'Preemptive scheduler/VM/IRQ gate failed; last QEMU interrupt trace lines:'
+          if [ "$jx_seen" -ne 1 ] || [ "$help_seen" -ne 1 ] || [ "$vm_seen" -ne 1 ] || [ "$tasks_seen" -ne 1 ] || [ "$alloc_seen" -ne 1 ]; then
+            echo 'JX runtime/scheduler/VM/IRQ gate failed; last QEMU interrupt trace lines:'
             tail -n 200 build/qemu-debug.log || true
           fi
           if [ "$rc" -ne 0 ] && [ "$rc" -ne 124 ]; then exit "$rc"; fi
+          test "$jx_seen" -eq 1
           test "$help_seen" -eq 1
           test "$vm_seen" -eq 1
           test "$tasks_seen" -eq 1
@@ -199,11 +211,16 @@ jobs:
           grep -Fq 'SCHEDULER: READY' build/qemu.log
           grep -Fq 'PIT IRQ0: ACTIVE' build/qemu.log
           grep -Fq 'PS2 IRQ1: ACTIVE' build/qemu.log
+          grep -Fq 'JX RUNTIME: ACTIVE' build/qemu.log
+          grep -Fq 'JX APPLIED ABI: 1' build/qemu.log
+          grep -Fq 'JX PAGE: 7F0001 7F0002' build/qemu.log
+          grep -Fq 'JX BUS.TICK: ACTIVE' build/qemu.log
+          grep -Fq 'JX BUS.COLLECT: ACTIVE' build/qemu.log
           grep -Fq 'HELP ABOUT MEM VM TASKS TICKS ALLOC CLEAR HALT' build/qemu.log
           grep -Fq 'DIRECT MAP GIB: 64' build/qemu.log
           grep -Fq 'TASKS: 3' build/qemu.log
-          grep -Eq 'WORKER-A TICKS: [1-9][0-9]*' build/qemu.log
-          grep -Eq 'WORKER-B TICKS: [1-9][0-9]*' build/qemu.log
+          grep -Eq 'JX-RUNTIME TICKS: [1-9][0-9]*' build/qemu.log
+          grep -Eq 'IDLE TICKS: [1-9][0-9]*' build/qemu.log
           grep -Fq 'PHYSICAL PAGE FRAME ALLOCATED' build/qemu.log
 
       - name: Upload boot artifacts
