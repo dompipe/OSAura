@@ -61,7 +61,8 @@ static int starts_with(const char *text, const char *prefix) {
 
 static void trim_line(char *line) {
     size_t n = strlen(line);
-    while (n && (line[n - 1] == '\r' || line[n - 1] == '\n' || line[n - 1] == ' ' || line[n - 1] == '\t'))
+    while (n && (line[n - 1] == '\r' || line[n - 1] == '\n' ||
+                 line[n - 1] == ' ' || line[n - 1] == '\t'))
         line[--n] = 0;
 }
 
@@ -181,15 +182,19 @@ static int vfs_test(void) {
     if (rc != 0) return rc;
     rc = osaura_windows_vfs64_write_as(OSAURA_SECURITY_KERNEL_SUBJECT, h,
                                        payload, (uint32_t)sizeof payload, &n);
-    if (osaura_windows_vfs64_close_as(OSAURA_SECURITY_KERNEL_SUBJECT, h) != 0 && rc == 0) rc = -20;
+    if (osaura_windows_vfs64_close_as(OSAURA_SECURITY_KERNEL_SUBJECT, h) != 0 && rc == 0)
+        rc = -20;
     if (rc != 0 || n != sizeof payload) return rc ? rc : -21;
     rc = osaura_windows_vfs64_open_as(OSAURA_SECURITY_JX_SUBJECT,
         "/vfs64-test.bin", OSAURA_WINDOWS_VFS64_READ, &h);
     if (rc != 0) return rc;
     rc = osaura_windows_vfs64_read_as(OSAURA_SECURITY_JX_SUBJECT, h,
                                       readback, (uint32_t)sizeof payload, &n);
-    if (osaura_windows_vfs64_close_as(OSAURA_SECURITY_JX_SUBJECT, h) != 0 && rc == 0) rc = -22;
-    if (rc != 0 || n != sizeof payload || memcmp(readback, payload, sizeof payload) != 0) return rc ? rc : -23;
+    if (osaura_windows_vfs64_close_as(OSAURA_SECURITY_JX_SUBJECT, h) != 0 && rc == 0)
+        rc = -22;
+    if (rc != 0 || n != sizeof payload ||
+        memcmp(readback, payload, sizeof payload) != 0)
+        return rc ? rc : -23;
     return 0;
 }
 
@@ -198,14 +203,17 @@ static int load_module(wsjx_state *state, const char *jx_path) {
     int rc = osaura_windows_vfs64_open_as(OSAURA_SECURITY_JX_SUBJECT,
         jx_path, OSAURA_WINDOWS_VFS64_READ, &h);
     if (rc != 0) return rc;
-    osaura_windows_vfs64_info info;
+    osaura_windows_vfs64_info info = {0};
     rc = osaura_windows_vfs64_stat_as(OSAURA_SECURITY_JX_SUBJECT, h, &info);
     unsigned char head[16] = {0};
     uint32_t got = 0u;
-    if (rc == 0) rc = osaura_windows_vfs64_read_as(OSAURA_SECURITY_JX_SUBJECT,
-                                                    h, head, sizeof head, &got);
-    int close_rc = osaura_windows_vfs64_close_as(OSAURA_SECURITY_JX_SUBJECT, h);
-    if (rc == 0 && close_rc != 0) rc = close_rc;
+    if (rc == 0)
+        rc = osaura_windows_vfs64_read_as(OSAURA_SECURITY_JX_SUBJECT,
+                                          h, head, sizeof head, &got);
+    {
+        int close_rc = osaura_windows_vfs64_close_as(OSAURA_SECURITY_JX_SUBJECT, h);
+        if (rc == 0 && close_rc != 0) rc = close_rc;
+    }
     if (rc != 0 || got == 0u || info.size > UINT32_MAX) return rc ? rc : -5;
     if (copy_path(state->loaded_path, sizeof state->loaded_path, jx_path) != 0) return -6;
     state->loaded_bytes = (uint32_t)info.size;
@@ -222,13 +230,20 @@ static int memory_test(void) {
     int rc = osaura_windows_memory64_alloc_as(OSAURA_SECURITY_JX_SUBJECT, 65536u, &id);
     if (rc != 0) return rc;
     uint8_t *p = (uint8_t *)osaura_windows_memory64_map_as(OSAURA_SECURITY_JX_SUBJECT, id);
-    if (!p) { (void)osaura_windows_memory64_free_as(OSAURA_SECURITY_JX_SUBJECT, id); return -10; }
-    p[0] = 0x4au; p[65535] = 0x58u;
-    osaura_windows_memory64_info info;
+    if (!p) {
+        (void)osaura_windows_memory64_free_as(OSAURA_SECURITY_JX_SUBJECT, id);
+        return -10;
+    }
+    p[0] = 0x4au;
+    p[65535] = 0x58u;
+    osaura_windows_memory64_info info = {0};
     rc = osaura_windows_memory64_info_as(OSAURA_SECURITY_JX_SUBJECT, id, &info);
-    if (rc == 0 && (info.bytes != 65536u || p[0] != 0x4au || p[65535] != 0x58u)) rc = -11;
-    int free_rc = osaura_windows_memory64_free_as(OSAURA_SECURITY_JX_SUBJECT, id);
-    return rc != 0 ? rc : free_rc;
+    if (rc == 0 && (info.bytes != 65536u || p[0] != 0x4au || p[65535] != 0x58u))
+        rc = -11;
+    {
+        int free_rc = osaura_windows_memory64_free_as(OSAURA_SECURITY_JX_SUBJECT, id);
+        return rc != 0 ? rc : free_rc;
+    }
 }
 
 static void print_tasks(void) {
@@ -236,7 +251,7 @@ static void print_tasks(void) {
     printf("TASK64 COUNT: %u FOREGROUND: %u BACKGROUND: %u\n", count,
            osaura_windows_job64_foreground(), osaura_windows_job64_background_count());
     for (uint32_t i = 0u; i < count; ++i) {
-        osaura_windows_task64_info info;
+        osaura_windows_task64_info info = {0};
         if (osaura_windows_task64_info(i, &info) == 0)
             printf("%u SUBJECT %u ROLE %u STATE %u %s\n", info.task_id,
                    info.subject, (unsigned)info.role, (unsigned)info.state, info.name);
@@ -246,17 +261,21 @@ static void print_tasks(void) {
 static int ipc_test(void) {
     uint32_t channel = OSAURA_IPC_NONE;
     static const char text[] = "JX64-IPC64";
-    osaura_ipc_message message;
+    osaura_ipc_message message = {0};
     int rc = osaura_windows_ipc64_create(2u, &channel);
     if (rc != 0) return rc;
     rc = osaura_windows_ipc64_send(1u, channel, 64u, text, (uint32_t)sizeof text);
     if (rc == 0 && osaura_windows_ipc64_pending(channel) != 1u) rc = -10;
     if (rc == 0) rc = osaura_windows_ipc64_receive(2u, channel, &message);
-    if (rc == 1) rc = (message.bytes == sizeof text &&
-                       memcmp(message.payload, text, sizeof text) == 0) ? 0 : -11;
-    else if (rc == 0) rc = -12;
-    int close_rc = osaura_windows_ipc64_close(2u, channel);
-    return rc != 0 ? rc : close_rc;
+    if (rc == 1)
+        rc = (message.bytes == sizeof text &&
+              memcmp(message.payload, text, sizeof text) == 0) ? 0 : -11;
+    else if (rc == 0)
+        rc = -12;
+    {
+        int close_rc = osaura_windows_ipc64_close(2u, channel);
+        return rc != 0 ? rc : close_rc;
+    }
 }
 
 static void print_status(const wsjx_state *state) {
@@ -293,10 +312,12 @@ static void clear_console(void) {
 static int make_vfs_root(char *out, size_t capacity) {
     DWORD n = GetCurrentDirectoryA((DWORD)capacity, out);
     if (n == 0u || n >= capacity) return -1;
-    static const char suffix[] = "\\wsjx-root";
-    size_t at = strlen(out), add = sizeof suffix;
-    if (at + add > capacity) return -2;
-    memcpy(out + at, suffix, add);
+    {
+        static const char suffix[] = "\\wsjx-root";
+        size_t at = strlen(out), add = sizeof suffix;
+        if (at + add > capacity) return -2;
+        memcpy(out + at, suffix, add);
+    }
     return 0;
 }
 
@@ -308,9 +329,11 @@ int main(int argc, char **argv) {
     state.socket_ready = osaura_windows_socket_backend_install() == 0 ? 1u : 0u;
     state.display_ready = osaura_windows_display_backend_install(
         WSJX_DISPLAY_WIDTH, WSJX_DISPLAY_HEIGHT) == 0 ? 1u : 0u;
-    char vfs_root[MAX_PATH];
-    state.vfs_ready = make_vfs_root(vfs_root, sizeof vfs_root) == 0 &&
-        osaura_windows_vfs64_init(vfs_root) == 0 ? 1u : 0u;
+    {
+        char vfs_root[MAX_PATH];
+        state.vfs_ready = make_vfs_root(vfs_root, sizeof vfs_root) == 0 &&
+            osaura_windows_vfs64_init(vfs_root) == 0 ? 1u : 0u;
+    }
     state.clock_ready = osaura_windows_clock64_init() == 0 ? 1u : 0u;
     state.memory_ready = osaura_windows_memory64_init() == 0 ? 1u : 0u;
     state.task_ready = osaura_windows_task64_init() == 0 ? 1u : 0u;
@@ -328,87 +351,92 @@ int main(int argc, char **argv) {
         }
     }
 
-    char line[LINE_BYTES];
-    for (;;) {
-        (void)osaura_windows_display_pump();
-        fputs("WSJX64> ", stdout);
-        fflush(stdout);
-        if (!fgets(line, sizeof line, stdin)) break;
-        trim_line(line);
-        if (!line[0]) continue;
+    {
+        char line[LINE_BYTES];
+        for (;;) {
+            (void)osaura_windows_display_pump();
+            fputs("WSJX64> ", stdout);
+            fflush(stdout);
+            if (!fgets(line, sizeof line, stdin)) break;
+            trim_line(line);
+            if (!line[0]) continue;
 
-        if (text_equal(line, "HELP")) print_help();
-        else if (text_equal(line, "ABOUT")) print_banner(&state);
-        else if (text_equal(line, "PLATFORM")) print_platform();
-        else if (text_equal(line, "STATUS")) print_status(&state);
-        else if (text_equal(line, "CAPS")) print_caps();
-        else if (text_equal(line, "MODE JX")) { state.jxl_mode = 0u; puts("MODE: JX"); }
-        else if (text_equal(line, "MODE JXL")) { state.jxl_mode = 1u; puts("MODE: JXL"); }
-        else if (text_equal(line, "SOCKET")) {
-            int rc = state.socket_ready ? socket_self_test() : -1;
-            printf("JX SOCKET: %s", rc == 0 ? "PASS" : "FAIL");
-            if (rc != 0) printf(" (%d)", rc);
-            puts("");
-        }
-        else if (text_equal(line, "MOUNTS"))
-            printf("/ -> %s\n", state.vfs_ready ? osaura_windows_vfs64_root() : "UNAVAILABLE");
-        else if (text_equal(line, "VFS TEST")) {
-            int rc = state.vfs_ready ? vfs_test() : -1;
-            printf("VFS64 TEST: %s", rc == 0 ? "PASS" : "FAIL");
-            if (rc != 0) printf(" (%d)", rc);
-            puts("");
-        }
-        else if (starts_with(line, "LOAD ")) {
-            const char *path = line + 5;
-            while (*path == ' ' || *path == '\t') ++path;
-            int rc = state.vfs_ready ? load_module(&state, path) : -1;
-            if (rc != 0) printf("LOAD FAILED: %d\n", rc);
-        }
-        else if (text_equal(line, "UNLOAD")) {
-            state.loaded_bytes = 0u;
-            state.loaded_path[0] = 0;
-            puts("MODULE: NONE");
-        }
-        else if (text_equal(line, "CLOCK"))
-            printf("CLOCK64 TICKS: %llu MS: %llu\n",
-                   (unsigned long long)osaura_windows_clock64_ticks(),
-                   (unsigned long long)osaura_windows_clock64_ms());
-        else if (text_equal(line, "MEM TEST")) {
-            int rc = state.memory_ready ? memory_test() : -1;
-            printf("MEMORY64 TEST: %s", rc == 0 ? "PASS" : "FAIL");
-            if (rc != 0) printf(" (%d)", rc);
-            puts("");
-        }
-        else if (text_equal(line, "TASKS")) print_tasks();
-        else if (text_equal(line, "IPC TEST")) {
-            int rc = state.ipc_ready ? ipc_test() : -1;
-            printf("IPC64 TEST: %s", rc == 0 ? "PASS" : "FAIL");
-            if (rc != 0) printf(" (%d)", rc);
-            puts("");
-        }
-        else if (text_equal(line, "INPUT"))
-            printf("INPUT64: %s\n", osaura_windows_input64_is_console() ? "CONSOLE EVENTS" : "REDIRECTED/PIPE MODE");
-        else if (text_equal(line, "DISPLAY")) {
-            int rc = state.display_ready ? display_info() : -1;
-            if (rc != 0) printf("JX11 DISPLAY: FAIL (%d)\n", rc);
-        }
-        else if (text_equal(line, "DISPLAY OPEN")) {
-            int rc = state.display_ready ? osaura_windows_display_show() : -1;
-            printf("JX11 DISPLAY OPEN: %s", rc == 0 ? "PASS" : "FAIL");
-            if (rc != 0) printf(" (%d)", rc);
-            puts("");
-        }
-        else if (text_equal(line, "DISPLAY TEST")) {
-            int rc = state.display_ready ? display_test() : -1;
-            printf("JX11 DISPLAY TEST: %s", rc == 0 ? "PASS" : "FAIL");
-            if (rc != 0) printf(" (%d)", rc);
-            puts("");
-        }
-        else if (text_equal(line, "CLEAR")) clear_console();
-        else if (text_equal(line, "EXIT") || text_equal(line, "HALT")) break;
-        else puts("UNKNOWN COMMAND - TYPE HELP");
+            if (text_equal(line, "HELP")) print_help();
+            else if (text_equal(line, "ABOUT")) print_banner(&state);
+            else if (text_equal(line, "PLATFORM")) print_platform();
+            else if (text_equal(line, "STATUS")) print_status(&state);
+            else if (text_equal(line, "CAPS")) print_caps();
+            else if (text_equal(line, "MODE JX")) { state.jxl_mode = 0u; puts("MODE: JX"); }
+            else if (text_equal(line, "MODE JXL")) { state.jxl_mode = 1u; puts("MODE: JXL"); }
+            else if (text_equal(line, "SOCKET")) {
+                int rc = state.socket_ready ? socket_self_test() : -1;
+                printf("JX SOCKET: %s", rc == 0 ? "PASS" : "FAIL");
+                if (rc != 0) printf(" (%d)", rc);
+                puts("");
+            }
+            else if (text_equal(line, "MOUNTS"))
+                printf("/ -> %s\n", state.vfs_ready ? osaura_windows_vfs64_root() : "UNAVAILABLE");
+            else if (text_equal(line, "VFS TEST")) {
+                int rc = state.vfs_ready ? vfs_test() : -1;
+                printf("VFS64 TEST: %s", rc == 0 ? "PASS" : "FAIL");
+                if (rc != 0) printf(" (%d)", rc);
+                puts("");
+            }
+            else if (starts_with(line, "LOAD ")) {
+                const char *path = line + 5;
+                while (*path == ' ' || *path == '\t') ++path;
+                {
+                    int rc = state.vfs_ready ? load_module(&state, path) : -1;
+                    if (rc != 0) printf("LOAD FAILED: %d\n", rc);
+                }
+            }
+            else if (text_equal(line, "UNLOAD")) {
+                state.loaded_bytes = 0u;
+                state.loaded_path[0] = 0;
+                puts("MODULE: NONE");
+            }
+            else if (text_equal(line, "CLOCK"))
+                printf("CLOCK64 TICKS: %llu MS: %llu\n",
+                       (unsigned long long)osaura_windows_clock64_ticks(),
+                       (unsigned long long)osaura_windows_clock64_ms());
+            else if (text_equal(line, "MEM TEST")) {
+                int rc = state.memory_ready ? memory_test() : -1;
+                printf("MEMORY64 TEST: %s", rc == 0 ? "PASS" : "FAIL");
+                if (rc != 0) printf(" (%d)", rc);
+                puts("");
+            }
+            else if (text_equal(line, "TASKS")) print_tasks();
+            else if (text_equal(line, "IPC TEST")) {
+                int rc = state.ipc_ready ? ipc_test() : -1;
+                printf("IPC64 TEST: %s", rc == 0 ? "PASS" : "FAIL");
+                if (rc != 0) printf(" (%d)", rc);
+                puts("");
+            }
+            else if (text_equal(line, "INPUT"))
+                printf("INPUT64: %s\n", osaura_windows_input64_is_console()
+                    ? "CONSOLE EVENTS" : "REDIRECTED/PIPE MODE");
+            else if (text_equal(line, "DISPLAY")) {
+                int rc = state.display_ready ? display_info() : -1;
+                if (rc != 0) printf("JX11 DISPLAY: FAIL (%d)\n", rc);
+            }
+            else if (text_equal(line, "DISPLAY OPEN")) {
+                int rc = state.display_ready ? osaura_windows_display_show() : -1;
+                printf("JX11 DISPLAY OPEN: %s", rc == 0 ? "PASS" : "FAIL");
+                if (rc != 0) printf(" (%d)", rc);
+                puts("");
+            }
+            else if (text_equal(line, "DISPLAY TEST")) {
+                int rc = state.display_ready ? display_test() : -1;
+                printf("JX11 DISPLAY TEST: %s", rc == 0 ? "PASS" : "FAIL");
+                if (rc != 0) printf(" (%d)", rc);
+                puts("");
+            }
+            else if (text_equal(line, "CLEAR")) clear_console();
+            else if (text_equal(line, "EXIT") || text_equal(line, "HALT")) break;
+            else puts("UNKNOWN COMMAND - TYPE HELP");
 
-        (void)osaura_windows_display_pump();
+            (void)osaura_windows_display_pump();
+        }
     }
 
     osaura_windows_display_shutdown();
