@@ -8,7 +8,7 @@ static uint32_t pack_xrgb(uint32_t xrgb) {
     return osaura_display_pack_rgb(r, g, b);
 }
 
-int osaura_jx11_display_info(osaura_jx11_display_info *out) {
+int osaura_jx11_display_get_info(osaura_jx11_display_info *out) {
     if (!out) return -1;
     const osaura_display_surface *surface = osaura_display_primary();
     if (!surface) return -2;
