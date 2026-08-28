@@ -9,9 +9,15 @@ on:
       - 'host/windows/socket-winsock.h'
       - 'host/windows/display-win32.c'
       - 'host/windows/display-win32.h'
+      - 'host/windows/vfs64.c'
+      - 'host/windows/vfs64.h'
+      - 'host/windows/runtime64.c'
+      - 'host/windows/runtime64.h'
       - 'include/osaura/socket.h'
       - 'kernel/socket.c'
       - 'kernel/security.h'
+      - 'kernel/ipc.h'
+      - 'kernel/scheduler.h'
       - 'kernel/display.c'
       - 'kernel/display.h'
       - 'runtime/jx/jx11-display.c'
@@ -25,9 +31,15 @@ on:
       - 'host/windows/socket-winsock.h'
       - 'host/windows/display-win32.c'
       - 'host/windows/display-win32.h'
+      - 'host/windows/vfs64.c'
+      - 'host/windows/vfs64.h'
+      - 'host/windows/runtime64.c'
+      - 'host/windows/runtime64.h'
       - 'include/osaura/socket.h'
       - 'kernel/socket.c'
       - 'kernel/security.h'
+      - 'kernel/ipc.h'
+      - 'kernel/scheduler.h'
       - 'kernel/display.c'
       - 'kernel/display.h'
       - 'runtime/jx/jx11-display.c'
@@ -47,7 +59,7 @@ jobs:
 
       - name: Build wsjx64.exe
         shell: cmd
-        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c kernel\socket.c kernel\display.c runtime\jx\jx11-display.c /Iinclude /Ikernel /Iruntime\jx /link /MACHINE:X64 Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx64.exe
+        run: cl /nologo /W4 /WX host\windows\wsjx.c host\windows\security-host.c host\windows\socket-winsock.c host\windows\display-win32.c host\windows\vfs64.c host\windows\runtime64.c kernel\socket.c kernel\display.c runtime\jx\jx11-display.c /Iinclude /Ikernel /Iruntime\jx /link /MACHINE:X64 Ws2_32.lib User32.lib Gdi32.lib /OUT:wsjx64.exe
 
       - name: Verify PE64 machine type
         shell: powershell
@@ -55,7 +67,13 @@ jobs:
           $headers = dumpbin /headers .\wsjx64.exe | Out-String
           if ($headers -notmatch 'machine \(x64\)') { throw 'wsjx64.exe is not PE32+ x64' }
 
-      - name: Smoke test WSJX64 shell and JX11 display
+      - name: Create VFS64 Book fixture
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path .\wsjx-root | Out-Null
+          [IO.File]::WriteAllBytes((Join-Path $PWD 'wsjx-root\ci.64B'), [byte[]](0x4A,0x58,0x36,0x34,0x80,0x81,0x00,0x02,0xC0,0x45,0x4E,0x44))
+
+      - name: Smoke test WSJX64 hosted machine
         shell: powershell
         run: |
           @"
@@ -65,6 +83,14 @@ jobs:
           MODE JXL
           STATUS
           SOCKET
+          MOUNTS
+          VFS TEST
+          LOAD /ci.64B
+          CLOCK
+          MEM TEST
+          TASKS
+          IPC TEST
+          INPUT
           DISPLAY
           DISPLAY TEST
           EXIT
@@ -77,6 +103,13 @@ jobs:
           if ($text -notmatch 'GDI64: WINDOWS GDI API') { throw 'GDI64 backend missing' }
           if ($text -notmatch 'MODE: JXL') { throw 'JXL mode switch missing' }
           if ($text -notmatch 'JX SOCKET: PASS') { throw 'Winsock64 path failed' }
+          if ($text -notmatch 'VFS64 TEST: PASS') { throw 'VFS64 path failed' }
+          if ($text -notmatch 'LOADED VIA VFS64: /ci.64B') { throw 'Book load did not use VFS64' }
+          if ($text -notmatch 'CLOCK64 TICKS:') { throw 'CLOCK64 missing' }
+          if ($text -notmatch 'MEMORY64 TEST: PASS') { throw 'MEMORY64 path failed' }
+          if ($text -notmatch 'TASK64 COUNT: 3') { throw 'TASK64 state missing' }
+          if ($text -notmatch 'IPC64 TEST: PASS') { throw 'IPC64 path failed' }
+          if ($text -notmatch 'INPUT64:') { throw 'INPUT64 state missing' }
           if ($text -notmatch 'JX11 DISPLAY: 1024x768') { throw 'JX11 display backend missing' }
           if ($text -notmatch 'JX11 DISPLAY TEST: PASS') { throw 'JX11 draw path failed' }
           if ($text -notmatch 'F0-FF: RESERVED') { throw 'reserved opcode invariant missing' }
